@@ -316,37 +316,37 @@ const NewClaim = () => {
                       {claimEntries.map((entry) => (
                         <div key={entry.id} className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center bg-gray-50 lg:bg-transparent p-4 lg:p-0 rounded-xl lg:rounded-none border border-gray-100 lg:border-none">
 
-                          <div className="col-span-2 flex flex-col">
+                          <div className="lg:col-span-2 flex flex-col">
                             <label className="lg:hidden text-xs text-gray-500 mb-1">Today's Date</label>
                             <input type="date" value={entry.date} onChange={(e) => updateEntry(entry.id, 'date', e.target.value)} className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2.5 font-body focus:ring-2 focus:ring-[#185700]/30 focus:border-[#185700] outline-none transition-all" />
                           </div>
 
-                          <div className="col-span-1 flex flex-col">
+                          <div className="lg:col-span-1 flex flex-col">
                             <label className="lg:hidden text-xs text-gray-500 mb-1">From</label>
                             <input type="date" value={entry.from} onChange={(e) => updateEntry(entry.id, 'from', e.target.value)} className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2.5 font-body focus:ring-2 focus:ring-[#185700]/30 focus:border-[#185700] outline-none transition-all" />
                           </div>
 
-                          <div className="col-span-1 flex flex-col">
+                          <div className="lg:col-span-1 flex flex-col">
                             <label className="lg:hidden text-xs text-gray-500 mb-1">To</label>
                             <input type="date" value={entry.to} onChange={(e) => updateEntry(entry.id, 'to', e.target.value)} className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2.5 font-body focus:ring-2 focus:ring-[#185700]/30 focus:border-[#185700] outline-none transition-all" />
                           </div>
 
-                          <div className="col-span-1 flex flex-col">
+                          <div className="lg:col-span-1 flex flex-col">
                             <label className="lg:hidden text-xs text-gray-500 mb-1">No. Nights</label>
                             <input type="number" min="1" max="7" value={entry.nights} onChange={(e) => updateEntry(entry.id, 'nights', e.target.value)} className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2.5 font-body text-center focus:ring-2 focus:ring-[#185700]/30 focus:border-[#185700] outline-none transition-all" />
                           </div>
 
-                          <div className="col-span-4 flex flex-col">
+                          <div className="lg:col-span-4 flex flex-col">
                             <label className="lg:hidden text-xs text-gray-500 mb-1">Work Description</label>
                             <input type="text" maxLength={255} value={entry.description} onChange={(e) => updateEntry(entry.id, 'description', e.target.value)} placeholder="e.g. Client site visit" className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2.5 font-body focus:ring-2 focus:ring-[#185700]/30 focus:border-[#185700] outline-none transition-all" />
                           </div>
 
-                          <div className="col-span-2 flex flex-col">
+                          <div className="lg:col-span-2 flex flex-col">
                             <label className="lg:hidden text-xs text-gray-500 mb-1">Allowance Entitled</label>
                             <input type="number" min="0" max="50000" step="0.01" value={entry.allowance} onChange={(e) => updateEntry(entry.id, 'allowance', e.target.value)} placeholder="Max 50,000" className="w-full bg-white border border-gray-300 text-gray-900 rounded-lg px-3 py-2.5 font-body focus:ring-2 focus:ring-[#185700]/30 focus:border-[#185700] outline-none transition-all" />
                           </div>
 
-                          <div className="col-span-1 flex justify-end lg:justify-center mt-2 lg:mt-0">
+                          <div className="lg:col-span-1 flex justify-end lg:justify-center mt-2 lg:mt-0">
                             <button
                               onClick={() => removeRow(entry.id)}
                               className="p-2 text-red-500 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
