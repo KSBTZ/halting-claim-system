@@ -245,7 +245,7 @@ const ManagerInbox = () => {
           </div>
         );
       })()}
-      <div className="flex h-screen w-full bg-[#f8fafc] font-body antialiased">
+      <div className="flex h-[100dvh] w-full bg-[#f8fafc] font-body antialiased">
 
       {mobileMenuOpen && (
         <div
@@ -299,7 +299,7 @@ const ManagerInbox = () => {
             backgroundPosition: 'center',
           }}
         >
-        <div className="md:hidden flex items-center gap-3 bg-[#185700] text-white px-4 py-3 shadow-md">
+        <div className="md:hidden flex items-center gap-3 bg-[#185700] text-white px-4 pb-3 shadow-md" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
           <button onClick={() => setMobileMenuOpen(true)} className="p-1">
             <Menu className="w-6 h-6" />
           </button>
@@ -461,7 +461,7 @@ const ManagerInbox = () => {
                             rows={2}
                             className="w-full bg-gray-50 border border-gray-300 rounded-lg px-4 py-2.5 font-body text-sm focus:ring-2 focus:ring-[#185700]/30 focus:border-[#185700] outline-none transition-all mb-4"
                           />
-                          <div className="flex gap-3">
+                          <div className="flex flex-wrap gap-3">
                             <button
                               onClick={() => handleDecision(claim.id, 'Approved')}
                               disabled={decidingId === claim.id}

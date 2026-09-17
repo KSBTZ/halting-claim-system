@@ -218,7 +218,7 @@ const ReviewSummary = () => {
           <p className="text-white font-heading font-bold tracking-wide">Logging out...</p>
         </div>
       )}
-    <div className="flex h-screen w-full bg-[#f8fafc] font-body antialiased">
+    <div className="flex h-[100dvh] w-full bg-[#f8fafc] font-body antialiased">
       
       {mobileMenuOpen && (
         <div
@@ -276,7 +276,7 @@ const ReviewSummary = () => {
             backgroundPosition: 'center',
           }}
         >
-        <div className="md:hidden flex items-center gap-3 bg-[#185700] text-white px-4 py-3 shadow-md">
+        <div className="md:hidden flex items-center gap-3 bg-[#185700] text-white px-4 pb-3 shadow-md" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
           <button onClick={() => setMobileMenuOpen(true)} className="p-1">
             <Menu className="w-6 h-6" />
           </button>
