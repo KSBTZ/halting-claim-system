@@ -1,121 +1,102 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Inbox, LogOut, Check, X, Pencil, Trash2, Menu } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Check, CircleCheck, CircleX, Clock, Inbox, MessageSquareQuote, Pencil, Search, Trash2, Wallet, X } from 'lucide-react';
 import { supabase } from '../../supabase/supabaseClient';
-import logo from '../../assets/logos.jpeg';
-import beck from '../../assets/beck.jpg';
+import AppLayout from '../../components/AppLayout';
+import EntryEditor from '../../components/EntryEditor';
+import EntryTable from '../../components/EntryTable';
+import { ClaimCardSkeleton, EmptyState, PageHeader, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
+import { useFeedback } from '../../hooks/useFeedback';
+import { formatCurrency, formatDate, getClaimTotals, getInitials, pluralize } from '../../lib/format';
+import { deleteClaim, isEntryComplete, toEntryColumns, toFormEntries } from '../../lib/claims';
+import { getStatusMeta } from '../../lib/status';
+
+const TABS = ['Pending', 'Approved', 'Disapproved'];
 
 const ManagerInbox = () => {
   const navigate = useNavigate();
-  const [managerName, setManagerName] = useState('');
+  const { confirm, toast } = useFeedback();
+  const [managerName, setManagerName] = useState(null);
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
   const [activeTab, setActiveTab] = useState('Pending');
+  const [search, setSearch] = useState('');
   const [comments, setComments] = useState({}); // { [claimId]: commentText }
   const [decidingId, setDecidingId] = useState(null); // claim currently being submitted
   const [decidingAction, setDecidingAction] = useState(null); // 'Approved' or 'Disapproved' — which button is loading
-  const [toast, setToast] = useState(null); // { message, type: 'approved' | 'disapproved' | 'amended' | 'deleted' | 'error' }
-
-  const toastStyles = {
-    approved: { bg: 'bg-[#185700]', Icon: Check },
-    disapproved: { bg: 'bg-red-600', Icon: X },
-    amended: { bg: 'bg-blue-600', Icon: Pencil },
-    deleted: { bg: 'bg-gray-800', Icon: Trash2 },
-    error: { bg: 'bg-red-600', Icon: X },
-  };
-
-  const showToast = (message, type) => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 2500);
-  };
   const [deletingId, setDeletingId] = useState(null); // claim currently being deleted
-  const [loggingOut, setLoggingOut] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [amendingClaimId, setAmendingClaimId] = useState(null); // which claim is in edit mode
-  const [editedEntries, setEditedEntries] = useState({}); // { [entryId]: { date, from_time, to_time, number_of_nights, work_description, allowance_entitled } }
+  const [editedEntries, setEditedEntries] = useState([]); // form-shaped copies of that claim's entries
   const [savingAmendment, setSavingAmendment] = useState(false);
 
-  const fetchClaims = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      navigate('/');
-      return;
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('staff_name')
-      .eq('id', user.id)
-      .single();
-
-    if (profile) setManagerName(profile.staff_name);
-
-    // RLS lets managers see every claim, not just their own
-    const { data, error } = await supabase
-      .from('claims')
-      .select('*, entries(*)')
-      .order('submitted_at', { ascending: false });
-
-    if (error) {
-      console.error('Could not load claims:', error);
-    } else {
-      setClaims(data);
-    }
-
-    setLoading(false);
-  };
-
   useEffect(() => {
+    let cancelled = false;
+
+    const fetchClaims = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        navigate('/');
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('staff_name')
+        .eq('id', user.id)
+        .single();
+
+      if (cancelled) return;
+      setManagerName(profile?.staff_name || '');
+
+      // RLS lets managers see every claim, not just their own
+      const { data, error } = await supabase
+        .from('claims')
+        .select('*, entries(*)')
+        .order('submitted_at', { ascending: false });
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error('Could not load claims:', error);
+      } else {
+        setClaims(data);
+      }
+
+      setLoading(false);
+    };
+
     fetchClaims();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, reloadKey]);
 
-  const handleLogout = async () => {
-    const confirmed = window.confirm('Are you sure you want to log out?');
+  const refresh = () => setReloadKey((key) => key + 1);
+
+  const handleDelete = async (claim) => {
+    const confirmed = await confirm({
+      title: 'Delete this claim?',
+      message: `${claim.staff_name}'s claim and all of its entries will be permanently removed. This cannot be undone.`,
+      confirmLabel: 'Delete claim',
+      tone: 'danger',
+    });
     if (!confirmed) return;
 
-    setLoggingOut(true);
-    // Small artificial delay so the loading screen is actually visible,
-    // since signOut() alone usually resolves instantly
-    await Promise.all([
-      supabase.auth.signOut(),
-      new Promise((resolve) => setTimeout(resolve, 600)),
-    ]);
-    navigate('/');
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-GH', { style: 'decimal', minimumFractionDigits: 2 }).format(amount);
-  };
-
-  const getClaimTotals = (claim) => {
-    const entries = claim.entries || [];
-    const totalNights = entries.reduce((sum, e) => sum + (Number(e.number_of_nights) || 0), 0);
-    const totalAllowance = entries.reduce((sum, e) => sum + (Number(e.allowance_entitled) || 0), 0);
-    return { totalNights, totalAllowance };
-  };
-
-  const handleDelete = async (claimId) => {
-    const confirmed = window.confirm('Delete this claim permanently? This cannot be undone.');
-    if (!confirmed) return;
-
-    setDeletingId(claimId);
-
-    // Entries must go first since they reference the claim via claim_id
-    await supabase.from('entries').delete().eq('claim_id', claimId);
-    const { error } = await supabase.from('claims').delete().eq('id', claimId);
-
+    setDeletingId(claim.id);
+    const { error } = await deleteClaim(claim.id);
     setDeletingId(null);
 
     if (error) {
       console.error('Could not delete claim:', error);
-      showToast('Could not delete claim. Please try again.', 'error');
+      toast('Could not delete claim. Please try again.', { tone: 'error' });
       return;
     }
 
-    showToast('Claim deleted', 'deleted');
-    fetchClaims();
+    toast('Claim deleted', { tone: 'info', icon: Trash2 });
+    refresh();
   };
 
   const handleDecision = async (claimId, decision) => {
@@ -137,376 +118,246 @@ const ManagerInbox = () => {
 
     if (error) {
       console.error('Could not update claim:', error);
-      showToast('Could not update claim. Please try again.', 'error');
+      toast('Could not update claim. Please try again.', { tone: 'error' });
       return;
     }
 
-    showToast(`Claim ${decision.toLowerCase()}`, decision.toLowerCase());
-    fetchClaims();
+    toast(`Claim ${decision.toLowerCase()}`, decision === 'Approved' ? { tone: 'success', icon: Check } : { tone: 'error', icon: X });
+    refresh();
   };
 
   // Enter edit mode for a claim: seed editedEntries with its current values
   const startAmend = (claim) => {
-    const seed = {};
-    (claim.entries || []).forEach((entry) => {
-      seed[entry.id] = {
-        date: entry.date,
-        from_date: entry.from_date,
-        to_date: entry.to_date,
-        number_of_nights: entry.number_of_nights,
-        work_description: entry.work_description,
-        allowance_entitled: entry.allowance_entitled,
-      };
-    });
-    setEditedEntries(seed);
+    setEditedEntries(toFormEntries(claim.entries));
     setAmendingClaimId(claim.id);
   };
 
   const cancelAmend = () => {
     setAmendingClaimId(null);
-    setEditedEntries({});
+    setEditedEntries([]);
   };
 
   const updateEditedField = (entryId, field, value) => {
-    setEditedEntries((prev) => ({
-      ...prev,
-      [entryId]: { ...prev[entryId], [field]: value },
-    }));
+    setEditedEntries((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, [field]: value } : entry)));
   };
 
-  const saveAmendment = async (claim) => {
+  const saveAmendment = async () => {
     setSavingAmendment(true);
 
     // One update call per entry, since each entry is its own row
-    const updates = (claim.entries || []).map((entry) => {
-      const edited = editedEntries[entry.id];
-      return supabase
-        .from('entries')
-        .update({
-          date: edited.date,
-          from_date: edited.from_date,
-          to_date: edited.to_date,
-          number_of_nights: Number(edited.number_of_nights) || 0,
-          work_description: edited.work_description,
-          allowance_entitled: Number(edited.allowance_entitled) || 0,
-        })
-        .eq('id', entry.id);
-    });
-
-    const results = await Promise.all(updates);
+    const results = await Promise.all(
+      editedEntries.map((entry) => supabase.from('entries').update(toEntryColumns(entry)).eq('id', entry.id))
+    );
     const failed = results.find((r) => r.error);
 
     setSavingAmendment(false);
 
     if (failed) {
       console.error('Could not save amendment:', failed.error);
-      showToast('Could not save amendment. Please try again.', 'error');
+      toast('Could not save amendment. Please try again.', { tone: 'error' });
       return;
     }
 
-    showToast('Claim amended', 'amended');
-    setAmendingClaimId(null);
-    setEditedEntries({});
-    fetchClaims();
+    toast('Claim amended', { tone: 'info', icon: Pencil });
+    cancelAmend();
+    refresh();
   };
 
-  const filteredClaims = claims.filter((claim) => claim.status === activeTab);
+  const countBy = (status) => claims.filter((c) => c.status === status).length;
+  const pendingCount = countBy('Pending');
+  const pendingValue = claims
+    .filter((c) => c.status === 'Pending')
+    .reduce((sum, c) => sum + getClaimTotals(c.entries).totalAllowance, 0);
 
-  const tabStyles = (tab) =>
-    `px-5 py-2.5 rounded-lg font-bold text-sm transition-colors ${
-      activeTab === tab
-        ? 'bg-[#185700] text-[#FFF700]'
-        : 'text-gray-500 hover:bg-gray-100'
-    }`;
+  const query = search.trim().toLowerCase();
+  const filteredClaims = claims.filter(
+    (claim) =>
+      claim.status === activeTab &&
+      (!query || [claim.staff_name, claim.staff_no, claim.department].some((value) => value?.toLowerCase().includes(query)))
+  );
 
-  if (loading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#f8fafc] font-body">
-        <p className="text-gray-500">Loading...</p>
-      </div>
-    );
-  }
+  const tabs = TABS.map((value) => ({ value, label: value, count: countBy(value) }));
+  const amendmentValid = editedEntries.length > 0 && editedEntries.every(isEntryComplete);
 
   return (
-    <>
-      {loggingOut && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-[#185700]">
-          <div className="w-14 h-14 border-4 border-white/20 border-t-[#FFF700] rounded-full animate-spin"></div>
-          <p className="text-white font-heading font-bold tracking-wide">Logging out...</p>
-        </div>
-      )}
+    <AppLayout role="manager" userName={managerName} badges={{ pending: pendingCount }}>
+      <PageHeader
+        eyebrow="Manager"
+        title="Claim inbox"
+        description="Review halting claims from staff: approve, amend or decline them."
+      />
 
-      {toast && (() => {
-        const { bg, Icon } = toastStyles[toast.type] || toastStyles.error;
-        return (
-          <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg font-bold text-sm text-white flex items-center gap-2 animate-[toast-slide-fade_2.5s_ease-in-out] ${bg}`}>
-            <Icon className="w-4 h-4" strokeWidth={3} />
-            {toast.message}
-          </div>
-        );
-      })()}
-      <div className="flex h-[100dvh] w-full bg-[#f8fafc] font-body antialiased">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatCard label="Awaiting review" value={pendingCount} icon={Clock} tone="amber" loading={loading} />
+        <StatCard label="Pending value" prefix="GHS" value={formatCurrency(pendingValue)} icon={Wallet} tone="sun" loading={loading} />
+        <StatCard label="Approved" value={countBy('Approved')} icon={CircleCheck} tone="brand" loading={loading} />
+        <StatCard label="Disapproved" value={countBy('Disapproved')} icon={CircleX} tone="red" loading={loading} />
+      </div>
 
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
-      <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#185700] text-white flex flex-col justify-between shadow-xl transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 md:flex ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div>
-          <div className="px-6 py-8 flex items-center gap-3 border-b border-white/10">
-            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center overflow-hidden p-1 shadow-sm">
-               <img src={logo} alt="SIC Life" className="w-full h-full object-contain" />
-            </div>
-            <h1 className="text-2xl font-heading font-bold tracking-wide text-white">SIC Life</h1>
-          </div>
-
-          <div className="px-6 py-6 border-b border-white/10 flex items-center gap-4">
-            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-lg font-heading font-bold">
-              {managerName ? managerName.split(' ').map(n => n[0]).join('').slice(0, 2) : '??'}
-            </div>
-            <div>
-              <p className="font-bold text-[#FFF700] text-sm">{managerName || 'Manager'}</p>
-              <p className="text-xs text-white/70">Manager</p>
-            </div>
-          </div>
-
-          <nav className="mt-6 px-4 space-y-2">
-            <Link to="/manager/inbox" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 bg-[#FFF700] text-[#185700] rounded-lg font-bold shadow-sm transition-colors">
-              <Inbox className="w-5 h-5" strokeWidth={2.5} />
-              Inbox
-            </Link>
-          </nav>
-        </div>
-
-        <div className="p-4 border-t border-white/10">
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-3 px-4 py-3 w-full text-white/80 hover:bg-white/10 hover:text-[#FFF700] rounded-lg font-medium transition-colors"
-          >
-            <LogOut className="w-5 h-5" />
-            Log out
-          </button>
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <Tabs tabs={tabs} value={activeTab} onChange={setActiveTab} label="Filter claims by status" />
+        <div className="relative md:w-72">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, staff no. or dept."
+            aria-label="Search claims"
+            className="field-input pl-10"
+          />
         </div>
       </div>
 
-        <div
-          className="flex-1 flex flex-col overflow-hidden"
-          style={{
-            backgroundImage: `linear-gradient(rgba(248, 250, 252, 0.88), rgba(248, 250, 252, 0.88)), url(${beck})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
-        >
-        <div className="md:hidden flex items-center gap-3 bg-[#185700] text-white px-4 pb-3 shadow-md" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-          <button onClick={() => setMobileMenuOpen(true)} className="p-1">
-            <Menu className="w-6 h-6" />
-          </button>
-          <span className="font-heading font-bold text-lg">SIC Life</span>
+      {loading ? (
+        <div className="space-y-4">
+          <ClaimCardSkeleton />
+          <ClaimCardSkeleton />
         </div>
-        <main className="flex-1 overflow-y-auto p-8 lg:p-12">
-          <div className="max-w-5xl mx-auto">
-            <h2 className="text-3xl font-heading font-bold text-gray-900 mb-6">Claim Inbox</h2>
+      ) : filteredClaims.length === 0 ? (
+        query ? (
+          <EmptyState icon={Search} title="No matching claims" description={`Nothing in ${activeTab.toLowerCase()} matches "${search.trim()}".`} />
+        ) : (
+          <EmptyState
+            icon={activeTab === 'Pending' ? Inbox : getStatusMeta(activeTab).icon}
+            title={activeTab === 'Pending' ? "You're all caught up" : `No ${activeTab.toLowerCase()} claims`}
+            description={activeTab === 'Pending' ? 'New claims from staff will appear here for review.' : `Claims you mark as ${activeTab.toLowerCase()} will show up here.`}
+          />
+        )
+      ) : (
+        <div className="space-y-5">
+          {filteredClaims.map((claim, index) => {
+            const { totalNights, totalAllowance } = getClaimTotals(claim.entries);
+            const entryCount = (claim.entries || []).length;
+            const isAmending = amendingClaimId === claim.id;
+            const isDeciding = decidingId === claim.id;
+            const { accent } = getStatusMeta(claim.status);
 
-            <div className="flex gap-2 mb-8">
-              <button className={tabStyles('Pending')} onClick={() => setActiveTab('Pending')}>
-                Pending
-              </button>
-              <button className={tabStyles('Approved')} onClick={() => setActiveTab('Approved')}>
-                Approved
-              </button>
-              <button className={tabStyles('Disapproved')} onClick={() => setActiveTab('Disapproved')}>
-                Disapproved
-              </button>
-            </div>
-
-            {filteredClaims.length === 0 ? (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
-                <p className="text-gray-500">No {activeTab.toLowerCase()} claims right now.</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {filteredClaims.map((claim) => {
-                  const { totalNights, totalAllowance } = getClaimTotals(claim);
-                  const isAmending = amendingClaimId === claim.id;
-
-                  return (
-                    <div key={claim.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 lg:p-8">
-
-                      <div className="flex flex-wrap justify-between items-start gap-4 mb-6 pb-6 border-b border-gray-100">
-                        <div>
-                          <p className="text-lg font-heading font-bold text-gray-900">{claim.staff_name}</p>
-                          <p className="text-sm text-gray-500">{claim.department} · {claim.grade} · {claim.staff_no}</p>
-                        </div>
-                        <div className="flex items-start gap-4">
-                          <div className="text-right">
-                            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                              {claim.submitted_at ? new Date(claim.submitted_at).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-                            </p>
-                            <p className="text-lg font-bold text-[#185700]">GHS {formatCurrency(totalAllowance)}</p>
-                          </div>
-                          <button
-                            onClick={() => handleDelete(claim.id)}
-                            disabled={deletingId === claim.id}
-                            title="Delete Claim"
-                            className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors disabled:cursor-not-allowed"
-                          >
-                            {deletingId === claim.id ? (
-                              <span className="flex items-center gap-1 px-1">
-                                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce"></span>
-                              </span>
-                            ) : (
-                              <Trash2 className="w-5 h-5" />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      {!isAmending && (
-                        <div className="hidden lg:grid grid-cols-12 gap-4 pb-3 border-b border-gray-200 mb-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                          <div className="col-span-2">Date</div>
-                          <div className="col-span-2">From – To</div>
-                          <div className="col-span-1 text-center">Nights</div>
-                          <div className="col-span-5">Work Description</div>
-                          <div className="col-span-2 text-right">Allowance (GHS)</div>
-                        </div>
-                      )}
-
-                      <div className="space-y-3 mb-4">
-                        {(claim.entries || []).map((entry) => (
-                          isAmending ? (
-                            <div key={entry.id} className="grid grid-cols-1 lg:grid-cols-12 gap-2 lg:gap-3 items-center bg-gray-50 rounded-lg p-3">
-                              <input
-                                type="date"
-                                value={editedEntries[entry.id]?.date || ''}
-                                onChange={(e) => updateEditedField(entry.id, 'date', e.target.value)}
-                                className="col-span-2 bg-white border border-gray-300 rounded-lg px-2 py-2 text-sm"
-                              />
-                              <input
-                                type="date"
-                                value={editedEntries[entry.id]?.from_date || ''}
-                                onChange={(e) => updateEditedField(entry.id, 'from_date', e.target.value)}
-                                className="col-span-1 bg-white border border-gray-300 rounded-lg px-2 py-2 text-sm"
-                              />
-                              <input
-                                type="date"
-                                value={editedEntries[entry.id]?.to_date || ''}
-                                onChange={(e) => updateEditedField(entry.id, 'to_date', e.target.value)}
-                                className="col-span-1 bg-white border border-gray-300 rounded-lg px-2 py-2 text-sm"
-                              />
-                              <input
-                                type="number"
-                                min="0"
-                                value={editedEntries[entry.id]?.number_of_nights || ''}
-                                onChange={(e) => updateEditedField(entry.id, 'number_of_nights', e.target.value)}
-                                className="col-span-1 bg-white border border-gray-300 rounded-lg px-2 py-2 text-sm text-center"
-                              />
-                              <input
-                                type="text"
-                                value={editedEntries[entry.id]?.work_description || ''}
-                                onChange={(e) => updateEditedField(entry.id, 'work_description', e.target.value)}
-                                className="col-span-5 bg-white border border-gray-300 rounded-lg px-2 py-2 text-sm"
-                              />
-                              <input
-                                type="text"
-                                value={editedEntries[entry.id]?.allowance_entitled || ''}
-                                onChange={(e) => updateEditedField(entry.id, 'allowance_entitled', e.target.value)}
-                                className="col-span-2 bg-white border border-gray-300 rounded-lg px-2 py-2 text-sm text-right"
-                              />
-                            </div>
-                          ) : (
-                            <div key={entry.id} className="grid grid-cols-1 lg:grid-cols-12 gap-2 lg:gap-4 items-center text-sm">
-                              <div className="col-span-2 text-gray-900">{entry.date}</div>
-                              <div className="col-span-2 text-gray-700">{entry.from_date} – {entry.to_date}</div>
-                              <div className="col-span-1 lg:text-center text-gray-900">{entry.number_of_nights}</div>
-                              <div className="col-span-5 text-gray-700">{entry.work_description}</div>
-                              <div className="col-span-2 lg:text-right text-gray-900">{formatCurrency(entry.allowance_entitled)}</div>
-                            </div>
-                          )
-                        ))}
-                      </div>
-
-                      {!isAmending && (
-                        <div className="flex items-center gap-3 text-sm mb-2">
-                          <span className="font-bold text-gray-900">Total Nights: {totalNights}</span>
-                        </div>
-                      )}
-
-                      {isAmending ? (
-                        <div className="mt-6 pt-6 border-t border-gray-100 flex gap-3">
-                          <button
-                            onClick={() => saveAmendment(claim)}
-                            disabled={savingAmendment}
-                            className="px-6 py-2.5 bg-[#185700] text-white font-bold rounded-xl hover:bg-[#103b00] transition-colors disabled:opacity-60"
-                          >
-                            {savingAmendment ? 'Saving...' : 'Save Amendments'}
-                          </button>
-                          <button
-                            onClick={cancelAmend}
-                            disabled={savingAmendment}
-                            className="px-6 py-2.5 text-gray-500 hover:bg-gray-100 font-bold rounded-xl transition-colors disabled:opacity-60"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : claim.status === 'Pending' ? (
-                        <div className="mt-6 pt-6 border-t border-gray-100">
-                          <textarea
-                            value={comments[claim.id] || ''}
-                            onChange={(e) => setComments({ ...comments, [claim.id]: e.target.value })}
-                            placeholder="Optional comment for the employee..."
-                            rows={2}
-                            className="w-full bg-gray-50 border border-gray-300 rounded-lg px-4 py-2.5 font-body text-sm focus:ring-2 focus:ring-[#185700]/30 focus:border-[#185700] outline-none transition-all mb-4"
-                          />
-                          <div className="flex flex-wrap gap-3">
-                            <button
-                              onClick={() => handleDecision(claim.id, 'Approved')}
-                              disabled={decidingId === claim.id}
-                              className="flex items-center gap-2 px-6 py-2.5 bg-[#185700] text-white font-bold rounded-xl hover:bg-[#103b00] transition-colors disabled:opacity-60"
-                            >
-                              <Check className="w-4 h-4" strokeWidth={3} />
-                              {decidingId === claim.id && decidingAction === 'Approved' ? 'Approving...' : 'Approve'}
-                            </button>
-                            <button
-                              onClick={() => handleDecision(claim.id, 'Disapproved')}
-                              disabled={decidingId === claim.id}
-                              className="flex items-center gap-2 px-6 py-2.5 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors disabled:opacity-60"
-                            >
-                              <X className="w-4 h-4" strokeWidth={3} />
-                              {decidingId === claim.id && decidingAction === 'Disapproved' ? 'Disapproving...' : 'Disapprove'}
-                            </button>
-                            <button
-                              onClick={() => startAmend(claim)}
-                              className="flex items-center gap-2 px-6 py-2.5 border-2 border-[#185700] text-[#185700] font-bold rounded-xl hover:bg-[#185700] hover:text-white transition-colors"
-                            >
-                              <Pencil className="w-4 h-4" strokeWidth={2.5} />
-                              Amend
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-                          <span className={`px-4 py-1.5 rounded-full text-sm font-bold ${claim.status === 'Approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            {claim.status}
-                          </span>
-                          {claim.manager_comment && (
-                            <p className="text-sm text-gray-500 italic">"{claim.manager_comment}"</p>
-                          )}
-                        </div>
-                      )}
+            return (
+              <article
+                key={claim.id}
+                className={`card relative animate-slideUp overflow-hidden before:absolute before:inset-y-0 before:left-0 before:w-1 ${accent}`}
+                style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}
+              >
+                <header className="flex items-start gap-3 p-4 sm:gap-4 sm:p-6">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-50 font-heading text-sm font-bold text-brand-700 ring-1 ring-brand-100">
+                    {getInitials(claim.staff_name)}
+                  </span>
+                  <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-x-4 gap-y-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-heading text-base font-bold text-gray-900 sm:text-lg">{claim.staff_name}</p>
+                      <p className="text-sm text-gray-500">
+                        {[claim.department, claim.grade, claim.staff_no].filter(Boolean).join(' · ')}
+                      </p>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </main>
-      </div>
-    </div>
-    </>
+                    <div className="sm:text-right">
+                      <p className="eyebrow">Submitted {formatDate(claim.submitted_at)}</p>
+                      <p className="tabular font-heading text-lg font-bold text-brand-700 sm:text-xl">GHS {formatCurrency(totalAllowance)}</p>
+                      <p className="text-xs text-gray-500">
+                        {pluralize(totalNights, 'night')} · {pluralize(entryCount, 'entry', 'entries')}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(claim)}
+                    disabled={deletingId === claim.id}
+                    title="Delete claim"
+                    aria-label={`Delete ${claim.staff_name}'s claim`}
+                    className="icon-btn -mr-1 -mt-1 hover:bg-red-50 hover:text-red-600"
+                  >
+                    {deletingId === claim.id ? <Spinner className="h-5 w-5 text-red-500" /> : <Trash2 className="h-5 w-5" />}
+                  </button>
+                </header>
+
+                <div className="px-4 pb-5 sm:px-6 sm:pb-6">
+                  {isAmending ? (
+                    <div className="space-y-4">
+                      <p className="flex items-center gap-2 text-sm font-medium text-sky-700">
+                        <Pencil className="h-4 w-4" />
+                        Editing entries: changes are saved to the employee's claim.
+                      </p>
+                      {editedEntries.map((entry, i) => (
+                        <EntryEditor key={entry.id} entry={entry} index={i} onChange={updateEditedField} />
+                      ))}
+                    </div>
+                  ) : (
+                    <EntryTable entries={toFormEntries(claim.entries)} />
+                  )}
+                </div>
+
+                {isAmending ? (
+                  <footer className="flex flex-wrap items-center gap-2 border-t border-gray-100 bg-gray-50/60 px-4 py-4 sm:px-6">
+                    <button type="button" onClick={saveAmendment} disabled={savingAmendment || !amendmentValid} className="btn-primary">
+                      {savingAmendment ? <Spinner /> : <Check className="h-4 w-4" strokeWidth={3} />}
+                      {savingAmendment ? 'Saving…' : 'Save amendments'}
+                    </button>
+                    <button type="button" onClick={cancelAmend} disabled={savingAmendment} className="btn-ghost">
+                      Cancel
+                    </button>
+                    {!amendmentValid && <p className="w-full text-xs text-gray-500 sm:ml-auto sm:w-auto">Complete every field to save.</p>}
+                  </footer>
+                ) : claim.status === 'Pending' ? (
+                  <footer className="border-t border-gray-100 bg-gray-50/60 px-4 py-4 sm:px-6 sm:py-5">
+                    <label htmlFor={`comment-${claim.id}`} className="field-label">
+                      Comment for employee <span className="font-normal text-gray-400">(optional)</span>
+                    </label>
+                    <textarea
+                      id={`comment-${claim.id}`}
+                      value={comments[claim.id] || ''}
+                      onChange={(e) => setComments({ ...comments, [claim.id]: e.target.value })}
+                      placeholder="Add a note the employee will see with your decision…"
+                      rows={2}
+                      className="field-input resize-y"
+                    />
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDecision(claim.id, 'Approved')}
+                        disabled={isDeciding || amendingClaimId !== null}
+                        className="btn-primary flex-1 sm:flex-none"
+                      >
+                        {isDeciding && decidingAction === 'Approved' ? <Spinner /> : <Check className="h-4 w-4" strokeWidth={3} />}
+                        {isDeciding && decidingAction === 'Approved' ? 'Approving…' : 'Approve'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDecision(claim.id, 'Disapproved')}
+                        disabled={isDeciding || amendingClaimId !== null}
+                        className="btn-danger-soft flex-1 sm:flex-none"
+                      >
+                        {isDeciding && decidingAction === 'Disapproved' ? <Spinner /> : <X className="h-4 w-4" strokeWidth={3} />}
+                        {isDeciding && decidingAction === 'Disapproved' ? 'Disapproving…' : 'Disapprove'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => startAmend(claim)}
+                        disabled={isDeciding || amendingClaimId !== null}
+                        className="btn-secondary w-full sm:ml-auto sm:w-auto"
+                      >
+                        <Pencil className="h-4 w-4" strokeWidth={2.5} />
+                        Amend
+                      </button>
+                    </div>
+                  </footer>
+                ) : (
+                  <footer className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-gray-100 bg-gray-50/60 px-4 py-3.5 sm:px-6">
+                    <StatusBadge status={claim.status} />
+                    {claim.reviewed_at && <span className="text-xs text-gray-500">Reviewed {formatDate(claim.reviewed_at)}</span>}
+                    {claim.manager_comment && (
+                      <p className="flex w-full gap-2 text-sm text-gray-600">
+                        <MessageSquareQuote className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                        <span className="italic">“{claim.manager_comment}”</span>
+                      </p>
+                    )}
+                  </footer>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </AppLayout>
   );
 };
 

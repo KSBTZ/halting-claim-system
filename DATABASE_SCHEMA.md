@@ -21,10 +21,11 @@
 | department | text | |
 | grade | text | |
 | staff_no | text | |
-| status | text | 'Pending', 'Approved', 'Disapproved', 'Amended' |
+| status | text | 'Draft', 'Pending', 'Approved', 'Disapproved', 'Amended' |
 | manager_comment | text | optional |
 | submitted_at | timestamp | auto |
 | reviewed_at | timestamp | optional |
+| seen_by_employee | boolean | set to false when a manager decides; cleared by `mark_own_claims_seen()` |
 
 ## entries
 | Column | Type | Notes |
@@ -32,11 +33,19 @@
 | id | uuid | auto-generated |
 | claim_id | uuid | references claims(id) |
 | date | date | |
-| from_time | time | |
-| to_time | time | |
+| from_date | date | start of the halting period |
+| to_date | date | end of the halting period |
 | number_of_nights | int | |
 | work_description | text | |
 | allowance_entitled | numeric | |
+
+## RPC functions
+
+| Function | Used by | Purpose |
+|---|---|---|
+| get_email_by_staff_no(input_staff_no) | Login | Lets staff sign in with their Staff ID instead of email |
+| is_staff_no_taken(input_staff_no) | Signup | Blocks duplicate Staff IDs |
+| mark_own_claims_seen() | My Requests | Clears the unseen-update badge for the signed-in employee |
 
 ## Routes (React Router paths)
 

@@ -1,17 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { FileText, List, LogOut, Menu } from 'lucide-react';
+import { CircleCheck, Clock, FileText, MessageSquareQuote, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
 import { supabase } from '../../supabase/supabaseClient';
-import logo from '../../assets/logos.jpeg';
-import beck from '../../assets/beck.jpg';
+import AppLayout from '../../components/AppLayout';
+import EntryTable from '../../components/EntryTable';
+import { ClaimCardSkeleton, EmptyState, PageHeader, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
+import { useFeedback } from '../../hooks/useFeedback';
+import { formatCurrency, formatDate, getClaimTotals, pluralize } from '../../lib/format';
+import { deleteClaim, toFormEntries } from '../../lib/claims';
+import { getStatusMeta } from '../../lib/status';
+
+const FILTERS = ['All', 'Pending', 'Approved', 'Disapproved', 'Draft'];
 
 const MyRequests = () => {
   const navigate = useNavigate();
-  const [staffName, setStaffName] = useState('');
+  const { confirm, toast } = useFeedback();
+  const [staffName, setStaffName] = useState(null);
   const [claims, setClaims] = useState([]);
   const [loadingClaims, setLoadingClaims] = useState(true);
-  const [loggingOut, setLoggingOut] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [filter, setFilter] = useState('All');
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -30,7 +38,7 @@ const MyRequests = () => {
         .eq('id', user.id)
         .single();
 
-      if (profile) setStaffName(profile.staff_name);
+      setStaffName(profile?.staff_name || '');
 
       const { data, error } = await supabase
         .from('claims')
@@ -53,29 +61,6 @@ const MyRequests = () => {
     fetchData();
   }, [navigate]);
 
-  const handleLogout = async () => {
-    const confirmed = window.confirm('Are you sure you want to log out?');
-    if (!confirmed) return;
-
-    setLoggingOut(true);
-    await Promise.all([
-      supabase.auth.signOut(),
-      new Promise((resolve) => setTimeout(resolve, 600)),
-    ]);
-    navigate('/');
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-GH', { style: 'decimal', minimumFractionDigits: 2 }).format(amount);
-  };
-
-  const getClaimTotals = (claim) => {
-    const entries = claim.entries || [];
-    const totalNights = entries.reduce((sum, e) => sum + (Number(e.number_of_nights) || 0), 0);
-    const totalAllowance = entries.reduce((sum, e) => sum + (Number(e.allowance_entitled) || 0), 0);
-    return { totalNights, totalAllowance };
-  };
-
   const handleContinueDraft = (claim) => {
     navigate('/employee/new-claim', {
       state: {
@@ -85,191 +70,166 @@ const MyRequests = () => {
           grade: claim.grade,
           staff_no: claim.staff_no,
         },
-        claimEntries: (claim.entries || []).map((entry) => ({
-          id: entry.id,
-          date: entry.date,
-          from: entry.from_date,
-          to: entry.to_date,
-          nights: entry.number_of_nights,
-          description: entry.work_description,
-          allowance: entry.allowance_entitled,
-        })),
+        claimEntries: toFormEntries(claim.entries),
         draftClaimId: claim.id,
       },
     });
   };
 
   const handleDeleteDraft = async (claimId) => {
-    const confirmed = window.confirm('Delete this draft permanently?');
+    const confirmed = await confirm({
+      title: 'Delete this draft?',
+      message: 'The draft and all its entries will be permanently removed.',
+      confirmLabel: 'Delete draft',
+      tone: 'danger',
+    });
     if (!confirmed) return;
 
-    await supabase.from('entries').delete().eq('claim_id', claimId);
-    await supabase.from('claims').delete().eq('id', claimId);
+    setDeletingId(claimId);
+    const { error } = await deleteClaim(claimId);
+    setDeletingId(null);
+
+    if (error) {
+      toast('Could not delete draft. Please try again.', { tone: 'error' });
+      return;
+    }
 
     setClaims((prev) => prev.filter((c) => c.id !== claimId));
+    toast('Draft deleted', { tone: 'info', icon: Trash2 });
   };
 
-  const statusStyles = {
-    Draft: 'bg-gray-100 text-gray-600 border-gray-300',
-    Pending: 'bg-yellow-100 text-yellow-700 border-yellow-300',
-    Approved: 'bg-green-100 text-green-700 border-green-300',
-    Disapproved: 'bg-red-100 text-red-700 border-red-300',
-  };
+  const countBy = (status) => claims.filter((c) => c.status === status).length;
+  const submitted = claims.filter((c) => c.status !== 'Draft');
+  const approvedTotal = claims
+    .filter((c) => c.status === 'Approved')
+    .reduce((sum, c) => sum + getClaimTotals(c.entries).totalAllowance, 0);
+
+  const visibleClaims = filter === 'All' ? claims : claims.filter((c) => c.status === filter);
+  const tabs = FILTERS.map((value) => ({
+    value,
+    label: value === 'Draft' ? 'Drafts' : value,
+    count: value === 'All' ? claims.length : countBy(value),
+  }));
 
   return (
-    <>
-      {loggingOut && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-[#185700]">
-          <div className="w-14 h-14 border-4 border-white/20 border-t-[#FFF700] rounded-full animate-spin"></div>
-          <p className="text-white font-heading font-bold tracking-wide">Logging out...</p>
+    <AppLayout role="employee" userName={staffName}>
+      <PageHeader
+        eyebrow="Your claims"
+        title="My requests"
+        description="Track the status of your halting claims and pick up any drafts."
+        actions={
+          <Link to="/employee/new-claim" className="btn-primary">
+            <Plus className="h-4 w-4" strokeWidth={3} />
+            New claim
+          </Link>
+        }
+      />
+
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatCard label="Submitted" value={submitted.length} icon={FileText} tone="gray" loading={loadingClaims} />
+        <StatCard label="Pending" value={countBy('Pending')} icon={Clock} tone="amber" loading={loadingClaims} />
+        <StatCard label="Approved" value={countBy('Approved')} icon={CircleCheck} tone="brand" loading={loadingClaims} />
+        <StatCard label="Approved total" prefix="GHS" value={formatCurrency(approvedTotal)} icon={Wallet} tone="sun" loading={loadingClaims} />
+      </div>
+
+      {!loadingClaims && claims.length > 0 && (
+        <div className="mb-5">
+          <Tabs tabs={tabs} value={filter} onChange={setFilter} label="Filter claims by status" />
         </div>
       )}
 
-      <div className="flex h-[100dvh] w-full bg-[#f8fafc] font-body antialiased">
-
-        {mobileMenuOpen && (
-          <div
-            className="fixed inset-0 bg-black/50 z-30 md:hidden"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-        )}
-        <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#185700] text-white flex flex-col justify-between shadow-xl transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 md:flex ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          <div>
-            <div className="px-6 py-8 flex items-center gap-3 border-b border-white/10">
-              <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center overflow-hidden p-1 shadow-sm">
-                 <img src={logo} alt="SIC Life" className="w-full h-full object-contain" />
-              </div>
-              <h1 className="text-2xl font-heading font-bold tracking-wide text-white">SIC Life</h1>
-            </div>
-
-            <div className="px-6 py-6 border-b border-white/10 flex items-center gap-4">
-              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-lg font-heading font-bold">
-                {staffName ? staffName.split(' ').map(n => n[0]).join('').slice(0, 2) : '??'}
-              </div>
-              <div>
-                <p className="font-bold text-[#FFF700] text-sm">{staffName || 'Employee'}</p>
-                <p className="text-xs text-white/70">Employee</p>
-              </div>
-            </div>
-
-            <nav className="mt-6 px-4 space-y-2">
-              <Link to="/employee/new-claim" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 text-white/80 hover:bg-white/10 hover:text-white rounded-lg font-medium transition-colors">
-                <FileText className="w-5 h-5" />
-                New Claim
-              </Link>
-              <Link to="/employee/my-requests" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 bg-[#FFF700] text-[#185700] rounded-lg font-bold shadow-sm transition-colors">
-                <List className="w-5 h-5" strokeWidth={2.5} />
-                My Requests
-              </Link>
-            </nav>
-          </div>
-
-          <div className="p-4 border-t border-white/10">
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-3 px-4 py-3 w-full text-white/80 hover:bg-white/10 hover:text-[#FFF700] rounded-lg font-medium transition-colors"
-            >
-              <LogOut className="w-5 h-5" />
-              Log out
-            </button>
-          </div>
+      {loadingClaims ? (
+        <div className="space-y-4">
+          <ClaimCardSkeleton />
+          <ClaimCardSkeleton />
         </div>
+      ) : claims.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          title="No claims yet"
+          description="When you submit a halting claim, you'll be able to track its progress here."
+          action={
+            <Link to="/employee/new-claim" className="btn-primary">
+              <Plus className="h-4 w-4" strokeWidth={3} />
+              Start a new claim
+            </Link>
+          }
+        />
+      ) : visibleClaims.length === 0 ? (
+        <EmptyState
+          icon={getStatusMeta(filter).icon}
+          title={`No ${filter === 'Draft' ? 'drafts' : `${filter.toLowerCase()} claims`}`}
+          description="Try a different filter to see your other claims."
+        />
+      ) : (
+        <div className="space-y-4">
+          {visibleClaims.map((claim, index) => {
+            const { totalNights, totalAllowance } = getClaimTotals(claim.entries);
+            const isDraft = claim.status === 'Draft';
+            const hasUpdate = !isDraft && claim.status !== 'Pending' && claim.seen_by_employee === false;
+            const { accent, soft } = getStatusMeta(claim.status);
 
-        <div
-          className="flex-1 flex flex-col overflow-hidden"
-          style={{
-            backgroundImage: `linear-gradient(rgba(248, 250, 252, 0.88), rgba(248, 250, 252, 0.88)), url(${beck})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
-        >
-          <div className="md:hidden flex items-center gap-3 bg-[#185700] text-white px-4 pb-3 shadow-md" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-            <button onClick={() => setMobileMenuOpen(true)} className="p-1">
-              <Menu className="w-6 h-6" />
-            </button>
-            <span className="font-heading font-bold text-lg">SIC Life</span>
-          </div>
-          <main className="flex-1 overflow-y-auto p-8 lg:p-12">
-            <div className="max-w-5xl mx-auto">
-              <h2 className="text-3xl font-heading font-bold text-gray-900 mb-8">My Requests</h2>
-
-              {loadingClaims ? (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
-                  <p className="text-gray-500">Loading your requests...</p>
+            return (
+              <article
+                key={claim.id}
+                className={`card relative animate-slideUp overflow-hidden p-4 before:absolute before:inset-y-0 before:left-0 before:w-1 sm:p-6 ${accent}`}
+                style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="eyebrow flex flex-wrap items-center gap-2">
+                      {isDraft ? 'Saved' : 'Submitted'} {formatDate(claim.submitted_at)}
+                      {hasUpdate && (
+                        <span className="rounded-full bg-sun-400 px-2 py-0.5 text-[10px] font-bold tracking-wider text-brand-800">New update</span>
+                      )}
+                    </p>
+                    <p className="tabular mt-1 font-heading text-xl font-bold text-gray-900">GHS {formatCurrency(totalAllowance)}</p>
+                    <p className="mt-0.5 text-sm text-gray-500">
+                      {pluralize(totalNights, 'night')} · {pluralize((claim.entries || []).length, 'entry', 'entries')}
+                    </p>
+                  </div>
+                  <StatusBadge status={claim.status} />
                 </div>
-              ) : claims.length === 0 ? (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
-                  <p className="text-gray-500 mb-4">You haven't submitted any claims yet.</p>
-                  <Link
-                    to="/employee/new-claim"
-                    className="inline-block px-6 py-3 bg-[#185700] text-[#FFF700] font-bold rounded-xl shadow-lg shadow-[#185700]/20 hover:bg-[#103b00] transition-colors"
-                  >
-                    Start a New Claim
-                  </Link>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {claims.map((claim) => {
-                    const { totalNights, totalAllowance } = getClaimTotals(claim);
-                    return (
-                      <div key={claim.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 lg:p-8">
-                        <div className="flex flex-wrap justify-between items-start gap-4 mb-4">
-                          <div>
-                            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
-                              Submitted {claim.submitted_at ? new Date(claim.submitted_at).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-                            </p>
-                            <p className="text-lg font-heading font-bold text-gray-900">
-                              {totalNights} night{totalNights !== 1 ? 's' : ''} · GHS {formatCurrency(totalAllowance)}
-                            </p>
-                          </div>
-                          <span className={`px-4 py-1.5 rounded-full text-sm font-bold border ${statusStyles[claim.status] || statusStyles.Pending}`}>
-                            {claim.status}
-                          </span>
-                        </div>
 
-                        {claim.status === 'Draft' && (
-                          <div className="flex gap-3 mb-4">
-                            <button
-                              onClick={() => handleContinueDraft(claim)}
-                              className="px-5 py-2 bg-[#185700] text-[#FFF700] text-sm font-bold rounded-lg hover:bg-[#103b00] transition-colors"
-                            >
-                              Continue
-                            </button>
-                            <button
-                              onClick={() => handleDeleteDraft(claim.id)}
-                              className="px-5 py-2 text-red-600 text-sm font-bold hover:bg-red-50 rounded-lg transition-colors"
-                            >
-                              Delete Draft
-                            </button>
-                          </div>
-                        )}
+                {(claim.entries || []).length > 0 && (
+                  <div className="mt-5">
+                    <EntryTable entries={toFormEntries(claim.entries)} />
+                  </div>
+                )}
 
-                        <div className="space-y-2 mb-2 border-t border-gray-100 pt-4">
-                          {(claim.entries || []).map((entry) => (
-                            <div key={entry.id} className="flex flex-wrap justify-between items-center text-sm text-gray-700 gap-2">
-                              <span>{entry.from_date} – {entry.to_date}</span>
-                              <span className="text-gray-500">{entry.work_description}</span>
-                              <span className="font-medium text-gray-900">GHS {formatCurrency(entry.allowance_entitled)}</span>
-                            </div>
-                          ))}
-                        </div>
+                {claim.manager_comment && (
+                  <div className={`mt-4 flex gap-3 rounded-xl border p-3.5 ${soft}`}>
+                    <MessageSquareQuote className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" />
+                    <div>
+                      <p className="eyebrow mb-0.5">Manager's comment</p>
+                      <p className="text-sm text-gray-800">{claim.manager_comment}</p>
+                    </div>
+                  </div>
+                )}
 
-                        {claim.manager_comment && (
-                          <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Manager's Comment</p>
-                            <p className="text-sm text-gray-700">{claim.manager_comment}</p>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </main>
+                {isDraft && (
+                  <div className="mt-5 flex flex-wrap gap-2 border-t border-gray-100 pt-4">
+                    <button type="button" onClick={() => handleContinueDraft(claim)} className="btn-primary">
+                      <Pencil className="h-4 w-4" />
+                      Continue editing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDraft(claim.id)}
+                      disabled={deletingId === claim.id}
+                      className="btn-ghost text-red-600 hover:bg-red-50 hover:text-red-700"
+                    >
+                      {deletingId === claim.id ? <Spinner /> : <Trash2 className="h-4 w-4" />}
+                      Delete draft
+                    </button>
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
-      </div>
-    </>
+      )}
+    </AppLayout>
   );
 };
 
