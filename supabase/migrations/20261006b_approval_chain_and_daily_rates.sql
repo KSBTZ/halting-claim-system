@@ -42,5 +42,6 @@ as $$
   order by p.approval_level, p.staff_name;
 $$;
 
-revoke all on function public.list_approvers() from public;
+-- Signed-in users only. Supabase grants new functions to anon by default, so revoke that explicitly.
+revoke all on function public.list_approvers() from public, anon;
 grant execute on function public.list_approvers() to authenticated;
