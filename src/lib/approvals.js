@@ -35,6 +35,15 @@ export const trailStep = ({ action, by, to, comment }) => ({
 // Claims sent before routing existed have no approver or trail; every approver still sees those
 export const isUnrouted = (claim) => !claim.current_approver_id && !(claim.review_trail || []).length;
 
+// Finished claims leave approvers' inboxes this long after the final decision.
+// They aren't deleted: the employee keeps them and they stay in the database.
+export const INBOX_KEEP_DAYS = 7;
+
+export const isRecentlyDecided = (claim, now = Date.now()) => {
+  const decidedAt = Date.parse(claim.reviewed_at || claim.submitted_at || '');
+  return Number.isFinite(decidedAt) && now - decidedAt < INBOX_KEEP_DAYS * 86_400_000;
+};
+
 export const handledBy = (claim, userId) =>
   (claim.review_trail || []).some((step) => step.by_id === userId && step.action !== 'submitted');
 

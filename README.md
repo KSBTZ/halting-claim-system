@@ -3,7 +3,7 @@
 A web app for SIC Life staff to submit **halting (overnight allowance) claims** and for managers to review them.
 
 - **Employees** fill in a claim (up to 3 trips: places, dates and allowance), then review, sign and send it, or save it as a draft. Nights are counted from the dates. Accommodation claims need the PDF receipt. My Requests tracks each claim's status and shows the manager's comments.
-- **Approvers** work in a chain. The employee sends a claim to a first-level manager; managers recommend and forward it to someone more senior, or disapprove it; only the highest level (e.g. the Managing Director) gives final approval. Each approver's inbox shows claims waiting on them and ones they've handled, with the full history on every claim.
+- **Approvers** work in a chain. The employee sends a claim to a first-level manager; managers recommend and forward it to someone more senior, or disapprove it; only the highest level (e.g. the Managing Director) gives final approval. Each approver's inbox shows claims waiting on them and ones they've handled, with the full history on every claim. Approvers can't delete claims; finished ones leave their inbox 7 days after the final decision (`INBOX_KEEP_DAYS` in `src/lib/approvals.js`) but stay in the database and in the employee's My Requests.
 
 ### Setting up approvers
 
