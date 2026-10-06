@@ -61,6 +61,14 @@ export const getInitials = (name) =>
     .slice(0, 2)
     .toUpperCase() || '?';
 
+// Morning until noon, afternoon until 5pm, evening after that
+export const timeOfDay = (date = new Date()) => {
+  const hour = date.getHours();
+  return hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+};
+
+export const firstName = (name) => (name || '').trim().split(/\s+/)[0] || '';
+
 export const pluralize = (count, singular, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
 
 // Works with both form entries ({ nights, allowance }) and entries table rows
