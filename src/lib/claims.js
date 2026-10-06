@@ -8,6 +8,10 @@ export const MAX_PENDING = 3;
 export const MAX_DRAFTS = 5;
 export const MAX_ALLOWANCE = 50000;
 
+// All-inclusive is a fixed amount per night that staff can't change.
+// Placeholder rate: replace with SIC Life's official figure.
+export const ALL_INCLUSIVE_RATE_PER_NIGHT = 400;
+
 export const ALLOWANCE_TYPES = [
   { value: 'all_inclusive', label: 'All-inclusive' },
   { value: 'accommodation', label: 'Accommodation' },
@@ -27,13 +31,13 @@ const amount = (value) => Number(value) || 0;
 /**
  * Recomputes the derived fields of a form entry:
  * - nights comes from the From/To dates
- * - allowance is the entry total: the all-inclusive amount, or accommodation + pocket + T&T.
+ * - allowance is the entry total: nights × the fixed all-inclusive rate, or accommodation + pocket + T&T.
  *   Entries saved before allowance types existed keep their stored total.
  */
 export const normalizeEntry = (entry) => {
   const nights = entry.from && entry.to ? nightsBetween(entry.from, entry.to) : amount(entry.nights);
   let allowance = amount(entry.allowance);
-  if (entry.allowanceType === 'all_inclusive') allowance = amount(entry.allInclusive);
+  if (entry.allowanceType === 'all_inclusive') allowance = nights * ALL_INCLUSIVE_RATE_PER_NIGHT;
   if (entry.allowanceType === 'accommodation') allowance = amount(entry.accommodation) + amount(entry.pocket) + amount(entry.tnt);
   return { ...entry, nights, allowance };
 };
@@ -47,7 +51,6 @@ export const emptyEntry = (id, date = '') => ({
   toPlace: '',
   description: '',
   allowanceType: '',
-  allInclusive: '',
   accommodation: '',
   pocket: '',
   tnt: '',
@@ -82,29 +85,26 @@ export const toEntryRows = (claimId, claimEntries) =>
   claimEntries.map((entry) => ({ claim_id: claimId, ...toEntryColumns(entry) }));
 
 // Zero amounts are what an unfilled draft field gets saved as, so show them as blank again.
-// Entries from before allowance types existed open with their total in the all-inclusive box.
+// Nights and totals are kept exactly as saved; editors recalculate them with normalizeEntry.
 export const toFormEntries = (rows = []) =>
-  (rows || []).map((row) =>
-    normalizeEntry({
-      id: row.id,
-      date: row.date || '',
-      from: row.from_date || '',
-      to: row.to_date || '',
-      fromPlace: row.from_location || '',
-      toPlace: row.to_location || '',
-      description: row.work_description || '',
-      allowanceType: row.allowance_type || '',
-      allInclusive: row.allowance_type !== 'accommodation' ? row.allowance_entitled || '' : '',
-      accommodation: row.accommodation_amount || '',
-      pocket: row.pocket_allowance || '',
-      tnt: row.tnt_allowance || '',
-      receiptPath: row.receipt_path || '',
-      nights: row.number_of_nights || 0,
-      allowance: row.allowance_entitled || 0,
-    })
-  );
+  (rows || []).map((row) => ({
+    id: row.id,
+    date: row.date || '',
+    from: row.from_date || '',
+    to: row.to_date || '',
+    fromPlace: row.from_location || '',
+    toPlace: row.to_location || '',
+    description: row.work_description || '',
+    allowanceType: row.allowance_type || '',
+    accommodation: row.accommodation_amount || '',
+    pocket: row.pocket_allowance || '',
+    tnt: row.tnt_allowance || '',
+    receiptPath: row.receipt_path || '',
+    nights: row.number_of_nights || 0,
+    allowance: row.allowance_entitled || 0,
+  }));
 
-const AMOUNT_FIELDS = ['allInclusive', 'accommodation', 'pocket', 'tnt'];
+const AMOUNT_FIELDS = ['accommodation', 'pocket', 'tnt'];
 
 export const getEntryErrors = (entry) => {
   const errors = {};
@@ -126,7 +126,7 @@ export const getEntryErrors = (entry) => {
 export const isEntryComplete = (entry, { requireReceipt = true } = {}) => {
   const filled = [entry.from, entry.to, entry.fromPlace, entry.toPlace, entry.description].every((value) => String(value || '').trim());
   if (!filled || !entry.allowanceType || Object.keys(getEntryErrors(entry)).length > 0) return false;
-  if (entry.allowanceType === 'all_inclusive') return amount(entry.allInclusive) > 0;
+  if (entry.allowanceType === 'all_inclusive') return nightsBetween(entry.from, entry.to) > 0;
   return amount(entry.accommodation) > 0 && (!requireReceipt || Boolean(entry.receiptPath));
 };
 

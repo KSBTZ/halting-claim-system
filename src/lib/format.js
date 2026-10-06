@@ -30,11 +30,26 @@ export const formatDateRange = (from, to) => {
   return `${startLabel} – ${dateFormatter.format(end)}`;
 };
 
-// Local YYYY-MM-DD, suitable for <input type="date">
-export const todayISO = () => {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+const pad = (n) => String(n).padStart(2, '0');
+
+// Local YYYY-MM-DD, the format date fields store
+export const toISODate = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+export const todayISO = () => toISODate(new Date());
+
+export const parseISODate = (value) => (/^\d{4}-\d{2}-\d{2}$/.test(value || '') ? parseDate(value) : null);
+
+export const addDaysISO = (value, days) => {
+  const date = parseISODate(value);
+  if (!date) return value;
+  date.setDate(date.getDate() + days);
+  return toISODate(date);
+};
+
+// dd/mm/yyyy, as used across SIC Life's systems
+export const formatShortDate = (value) => {
+  const date = parseISODate(value);
+  return date ? `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}` : '';
 };
 
 export const getInitials = (name) =>
