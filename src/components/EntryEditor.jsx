@@ -1,13 +1,14 @@
 import { CircleAlert, Lock, Trash2 } from 'lucide-react';
-import { ALLOWANCE_TYPES, ALL_INCLUSIVE_RATE_PER_NIGHT, getEntryErrors } from '../lib/claims';
+import { ALLOWANCE_TYPES, ALL_INCLUSIVE_RATE_PER_NIGHT, TNT_TRIPS, accommodationParts, getEntryErrors } from '../lib/claims';
 import { addDaysISO, formatCurrency, pluralize } from '../lib/format';
 import DatePicker from './DatePicker';
 import { ReceiptUpload } from './ReceiptField';
 
-const Field = ({ id, label, error, className = '', children }) => (
+const Field = ({ id, label, error, hint, className = '', children }) => (
   <div className={`min-w-0 ${className}`}>
     <label htmlFor={id} className="field-label">{label}</label>
     {children}
+    {hint && !error && <p className="tabular mt-1.5 text-xs text-gray-500">{hint}</p>}
     {error && (
       <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-red-600">
         <CircleAlert className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
@@ -40,6 +41,9 @@ const MoneyInput = ({ invalid, className = '', ...props }) => (
 const EntryEditor = ({ entry, index, canRemove, onChange, onRemove, receiptReadOnly = false }) => {
   const errors = getEntryErrors(entry);
   const id = (name) => `entry-${entry.id}-${name}`;
+  const parts = accommodationParts(entry);
+  const perNight = (total) =>
+    entry.nights ? `× ${pluralize(entry.nights, 'night')} = GHS ${formatCurrency(total)}` : '× nights, once the dates are picked';
   const bind = (name) => ({
     id: id(name),
     value: entry[name] ?? '',
@@ -143,7 +147,7 @@ const EntryEditor = ({ entry, index, canRemove, onChange, onRemove, receiptReadO
         {!entry.allowanceType && (
           <p className="mt-3 text-sm text-gray-500">
             Choose <span className="font-semibold text-gray-700">All-inclusive</span> for the fixed nightly rate, or{' '}
-            <span className="font-semibold text-gray-700">Accommodation</span> to claim accommodation, pocket and T&amp;T allowances.
+            <span className="font-semibold text-gray-700">Accommodation</span> to claim accommodation and pocket allowance per day, plus T&amp;T.
           </p>
         )}
 
@@ -165,13 +169,31 @@ const EntryEditor = ({ entry, index, canRemove, onChange, onRemove, receiptReadO
 
         {entry.allowanceType === 'accommodation' && (
           <div className="mt-4 grid grid-cols-12 gap-x-3 gap-y-4 sm:gap-x-4">
-            <Field id={id('accommodation')} label="Accommodation" error={errors.accommodation} className="col-span-12 sm:col-span-4">
+            <Field
+              id={id('accommodation')}
+              label="Accommodation / day"
+              error={errors.accommodation}
+              hint={perNight(parts.accommodation)}
+              className="col-span-12 sm:col-span-4"
+            >
               <MoneyInput {...money('accommodation')} />
             </Field>
-            <Field id={id('pocket')} label="Pocket allowance" error={errors.pocket} className="col-span-6 sm:col-span-4">
+            <Field
+              id={id('pocket')}
+              label="Pocket allowance / day"
+              error={errors.pocket}
+              hint={perNight(parts.pocket)}
+              className="col-span-6 sm:col-span-4"
+            >
               <MoneyInput {...money('pocket')} />
             </Field>
-            <Field id={id('tnt')} label="T&T allowance" error={errors.tnt} className="col-span-6 sm:col-span-4">
+            <Field
+              id={id('tnt')}
+              label="T&T allowance (each way)"
+              error={errors.tnt}
+              hint={`× ${TNT_TRIPS} (there and back) = GHS ${formatCurrency(parts.tnt)}`}
+              className="col-span-6 sm:col-span-4"
+            >
               <MoneyInput {...money('tnt')} />
             </Field>
             <div className="col-span-12">

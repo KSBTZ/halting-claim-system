@@ -8,6 +8,7 @@ const EMPLOYEE_REFRESH_MS = 30_000;
 
 const keys = {
   profile: ['profile'],
+  approvers: ['approvers'],
   myClaims: (userId) => ['claims', 'mine', userId],
   allClaims: ['claims', 'all'],
   unseen: (userId) => ['claims', 'unseen', userId],
@@ -29,7 +30,7 @@ export const useProfile = () =>
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('staff_name, department, grade, staff_no, role')
+        .select('staff_name, department, grade, staff_no, role, job_title, approval_level')
         .eq('id', userId)
         .single();
 
@@ -88,5 +89,18 @@ export const useUnseenCount = (userId, enabled) =>
         .neq('status', 'Pending')
         .eq('seen_by_employee', false);
       return count || 0;
+    },
+  });
+
+/** Everyone who can review claims (managers with an approval level), lowest level first. */
+export const useApprovers = (enabled = true) =>
+  useQuery({
+    queryKey: keys.approvers,
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('list_approvers');
+      if (error) throw error;
+      return data || [];
     },
   });

@@ -1,5 +1,5 @@
 import { CalendarDays, Moon, Wallet } from 'lucide-react';
-import { getAllowanceLabel } from '../lib/claims';
+import { TNT_TRIPS, accommodationParts, getAllowanceLabel } from '../lib/claims';
 import { formatCurrency, formatDateRange, pluralize } from '../lib/format';
 import { ReceiptLink } from './ReceiptField';
 
@@ -9,17 +9,19 @@ const routeOf = (entry) => (entry.fromPlace || entry.toPlace ? `${entry.fromPlac
 
 const Breakdown = ({ entry }) => {
   if (entry.allowanceType !== 'accommodation') return null;
+  const totals = accommodationParts(entry);
+  const nights = Number(entry.nights) || 0;
   const parts = [
-    ['Accommodation', entry.accommodation],
-    ['Pocket', entry.pocket],
-    ['T&T', entry.tnt],
+    ['Accommodation', `${formatCurrency(entry.accommodation)}/day × ${nights}`, totals.accommodation],
+    ['Pocket', `${formatCurrency(entry.pocket)}/day × ${nights}`, totals.pocket],
+    ['T&T', `${formatCurrency(entry.tnt)} × ${TNT_TRIPS}`, totals.tnt],
   ];
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-      {parts.map(([label, value]) => (
+      {parts.map(([label, sum, total]) => (
         <span key={label} className="tabular inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-          {label}
-          <span className="font-semibold text-gray-800">{formatCurrency(value)}</span>
+          {label} {sum} =
+          <span className="font-semibold text-gray-800">{formatCurrency(total)}</span>
         </span>
       ))}
       {entry.receiptPath ? (

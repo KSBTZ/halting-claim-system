@@ -37,7 +37,7 @@ const AppLayout = ({ role = 'employee', badges = {}, children }) => {
 
   const onMyRequests = pathname === '/employee/my-requests';
   const { data: unseenCount = 0 } = useUnseenCount(profile?.id, role === 'employee' && !onMyRequests);
-  const roleLabel = role === 'manager' ? 'Manager' : 'Employee';
+  const roleLabel = role === 'manager' ? profile?.job_title || 'Manager' : 'Employee';
   // My Requests marks everything as seen, so there's no badge to show while on it
   const allBadges = { unseen: onMyRequests ? 0 : unseenCount, ...badges };
   const hasBadge = NAV[role].some((item) => item.badgeKey && allBadges[item.badgeKey] > 0);

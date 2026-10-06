@@ -11,6 +11,8 @@
 | grade | text | |
 | staff_no | text | |
 | role | text | 'employee' or 'manager' only |
+| job_title | text | approvers only, e.g. Manager, Managing Director |
+| approval_level | int | approvers only: 1 = first level; the highest level gives final approval. Managers without one can't receive claims |
 
 ## claims
 | Column | Type | Notes |
@@ -27,6 +29,10 @@
 | reviewed_at | timestamp | optional |
 | seen_by_employee | boolean | set to false when a manager decides; cleared by `mark_own_claims_seen()` |
 | signature | text | employee's signature as a PNG data URL, required when sending |
+| current_approver_id | uuid | the approver the claim is waiting on (null once decided) |
+| current_approver_name | text | their name, kept on the claim so employees can see it |
+| current_approver_title | text | their job title |
+| review_trail | jsonb | every step so far: `{ action: submitted / forwarded / amended / approved / disapproved, at, by_id, by_name, by_title, to_id, to_name, to_title, comment }` |
 
 ## entries
 | Column | Type | Notes |
@@ -41,11 +47,14 @@
 | number_of_nights | int | calculated from from_date and to_date |
 | work_description | text | |
 | allowance_type | text | 'all_inclusive' or 'accommodation' (null on entries from before this existed) |
-| accommodation_amount | numeric | accommodation entries only |
-| pocket_allowance | numeric | accommodation entries only |
-| tnt_allowance | numeric | T&T allowance, accommodation entries only |
+| accommodation_amount | numeric | accommodation entries only: per day × nights |
+| pocket_allowance | numeric | accommodation entries only: per day × nights |
+| tnt_allowance | numeric | T&T, accommodation entries only: one way × 2 (there and back) |
+| accommodation_per_day | numeric | what was typed for accommodation |
+| pocket_per_day | numeric | what was typed for pocket allowance |
+| tnt_one_way | numeric | what was typed for T&T |
 | receipt_path | text | path of the PDF receipt in the `receipts` bucket, required for accommodation |
-| allowance_entitled | numeric | entry total: nights × the fixed all-inclusive rate (`ALL_INCLUSIVE_RATE_PER_NIGHT` in `src/lib/claims.js`), or accommodation + pocket + T&T |
+| allowance_entitled | numeric | entry total: nights × the fixed all-inclusive rate (`ALL_INCLUSIVE_RATE_PER_NIGHT` in `src/lib/claims.js`), or accommodation_amount + pocket_allowance + tnt_allowance |
 
 ## Storage
 
@@ -62,6 +71,7 @@ Database changes live in `supabase/migrations/`. Run each new file once in the S
 | get_email_by_staff_no(input_staff_no) | Login | Lets staff sign in with their Staff ID instead of email |
 | is_staff_no_taken(input_staff_no) | Signup | Blocks duplicate Staff IDs |
 | mark_own_claims_seen() | My Requests | Clears the unseen-update badge for the signed-in employee |
+| list_approvers() | Review, Manager Inbox | Names, titles and levels of managers who can review claims (security definer, so employees can see who to send to) |
 
 ## Routes (React Router paths)
 
