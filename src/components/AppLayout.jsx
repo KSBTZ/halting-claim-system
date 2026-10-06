@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { FilePlus2, Inbox, ListChecks, LogOut, Menu, X } from 'lucide-react';
+import { FilePlus2, Inbox, ListChecks, LogOut, Menu, Moon, Sun, Sunrise, X } from 'lucide-react';
 import { supabase } from '../supabase/supabaseClient';
 import { useProfile, useUnseenCount } from '../hooks/useAppData';
 import { useFeedback } from '../hooks/useFeedback';
 import { queryClient } from '../lib/queryClient';
-import { getInitials } from '../lib/format';
+import { firstName, getInitials, timeOfDay } from '../lib/format';
 import { Spinner } from './ui';
 import logo from '../assets/logo-wordmark.webp';
 import art from '../assets/beck.webp';
+
+const GREETING_ICONS = { morning: Sunrise, afternoon: Sun, evening: Moon };
 
 const NAV = {
   employee: [
@@ -38,6 +40,8 @@ const AppLayout = ({ role = 'employee', badges = {}, children }) => {
   const onMyRequests = pathname === '/employee/my-requests';
   const { data: unseenCount = 0 } = useUnseenCount(profile?.id, role === 'employee' && !onMyRequests);
   const roleLabel = role === 'manager' ? profile?.job_title || 'Manager' : 'Employee';
+  const period = timeOfDay();
+  const GreetingIcon = GREETING_ICONS[period];
   // My Requests marks everything as seen, so there's no badge to show while on it
   const allBadges = { unseen: onMyRequests ? 0 : unseenCount, ...badges };
   const hasBadge = NAV[role].some((item) => item.badgeKey && allBadges[item.badgeKey] > 0);
@@ -113,6 +117,22 @@ const AppLayout = ({ role = 'employee', badges = {}, children }) => {
             </div>
             <p className="mt-4 font-heading text-base font-bold text-white">Halting Claim System</p>
             <p className="text-xs text-white/60">{roleLabel} portal</p>
+          </div>
+
+          <div className="relative mx-3 mb-4 overflow-hidden rounded-2xl bg-white/[0.08] px-4 py-3.5 ring-1 ring-white/10">
+            <div aria-hidden="true" className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-sun-400/15 blur-xl" />
+            <p className="relative flex items-center gap-1.5 text-xs font-medium text-white/70">
+              <GreetingIcon className="h-3.5 w-3.5 text-sun-400" strokeWidth={2.5} />
+              Good {period}
+            </p>
+            {userName === null ? (
+              <div className="skeleton relative mt-2 h-5 w-32 bg-white/20" />
+            ) : (
+              <p className="relative mt-1 font-heading text-lg font-bold leading-snug text-white">
+                Welcome{userName ? ', ' : ''}
+                {userName && <span className="text-sun-400">{firstName(userName)}</span>}
+              </p>
+            )}
           </div>
 
           <nav className="relative flex-1 space-y-1 px-3 pt-2" aria-label="Main">
