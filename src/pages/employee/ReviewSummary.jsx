@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Info, PenLine, Save, Send } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Info, PenLine, Save, Send, UserRound } from 'lucide-react';
 import AppLayout from '../../components/AppLayout';
 import EntryTable from '../../components/EntryTable';
 import SignaturePad from '../../components/SignaturePad';
 import StaffDetailsCard from '../../components/StaffDetailsCard';
 import { Alert, PageHeader, Spinner, Stepper } from '../../components/ui';
+import { useApprovers } from '../../hooks/useAppData';
 import { useFeedback } from '../../hooks/useFeedback';
+import { approverLabel, firstLevelApprovers } from '../../lib/approvals';
 import { refreshClaims } from '../../lib/queryClient';
 import { formatCurrency, formatDate, getClaimTotals, pluralize, todayISO } from '../../lib/format';
 import { CLAIM_STEPS, MAX_DRAFTS, MAX_PENDING, saveDraft, submitClaim } from '../../lib/claims';
@@ -19,6 +21,10 @@ const ReviewSummary = () => {
   const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState('');
   const [signature, setSignature] = useState(null);
+  const [approverId, setApproverId] = useState('');
+  const { data: approvers = [], isPending: loadingApprovers, isError: approversFailed } = useApprovers();
+  const approverOptions = firstLevelApprovers(approvers);
+  const approver = approverOptions.find((a) => a.id === approverId);
 
   const { staffDetails, claimEntries, draftClaimId } = location.state || {};
   const hasClaim = Boolean(staffDetails && claimEntries?.length);
@@ -37,11 +43,11 @@ const ReviewSummary = () => {
   const busy = submitting || savingDraft;
 
   const handleSend = async () => {
-    if (!signature) return;
+    if (!signature || !approver) return;
     setSubmitting(true);
     setError('');
 
-    const { status } = await submitClaim({ staffDetails, claimEntries, draftClaimId, signature });
+    const { status } = await submitClaim({ staffDetails, claimEntries, draftClaimId, signature, approver });
 
     if (status === 'signed-out') {
       navigate('/');
@@ -56,7 +62,7 @@ const ReviewSummary = () => {
       setError('Could not submit claim. Please try again.');
     } else {
       await refreshClaims();
-      toast('Claim sent to your manager for review');
+      toast(`Claim submitted to ${approver.staff_name} for review`);
       navigate('/employee/my-requests');
     }
   };
@@ -114,6 +120,42 @@ const ReviewSummary = () => {
           <section className="card p-4 sm:p-6">
             <div className="mb-4">
               <h2 className="flex items-center gap-2 font-heading text-base font-bold text-gray-900 sm:text-lg">
+                <Send className="h-[18px] w-[18px] text-brand-700" />
+                Send to
+              </h2>
+              <p className="mt-0.5 text-sm text-gray-500">Choose the manager who should review this claim first.</p>
+            </div>
+            {loadingApprovers ? (
+              <div className="skeleton h-12 rounded-xl" />
+            ) : approversFailed ? (
+              <Alert>Could not load the list of managers. Please refresh the page.</Alert>
+            ) : approverOptions.length === 0 ? (
+              <Alert>No managers are set up to review claims yet. Please contact your admin.</Alert>
+            ) : (
+              <div className="group relative">
+                <UserRound className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-400 group-focus-within:text-brand-600" />
+                <select
+                  id="approver"
+                  aria-label="Send to"
+                  value={approverId}
+                  onChange={(e) => setApproverId(e.target.value)}
+                  className={`field-input cursor-pointer appearance-none py-3 pl-11 pr-10 ${approverId ? '' : 'text-gray-400'}`}
+                >
+                  <option value="" disabled>Select a manager</option>
+                  {approverOptions.map((option) => (
+                    <option key={option.id} value={option.id} className="text-gray-900">
+                      {approverLabel(option)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              </div>
+            )}
+          </section>
+
+          <section className="card p-4 sm:p-6">
+            <div className="mb-4">
+              <h2 className="flex items-center gap-2 font-heading text-base font-bold text-gray-900 sm:text-lg">
                 <PenLine className="h-[18px] w-[18px] text-brand-700" />
                 Sign to confirm
               </h2>
@@ -153,11 +195,15 @@ const ReviewSummary = () => {
 
             <div className="space-y-2.5 border-t border-gray-100 p-5">
               {error && <Alert>{error}</Alert>}
-              <button type="button" onClick={handleSend} disabled={busy || !signature} className="btn-primary w-full py-3">
+              <button type="button" onClick={handleSend} disabled={busy || !signature || !approver} className="btn-primary w-full py-3">
                 {submitting ? <Spinner /> : <Send className="h-4 w-4" strokeWidth={2.5} />}
-                {submitting ? 'Sending…' : 'Send request'}
+                {submitting ? 'Submitting…' : 'Submit request'}
               </button>
-              {!signature && <p className="text-center text-xs font-medium text-gray-500">Sign the claim to send it.</p>}
+              {(!signature || !approver) && (
+                <p className="text-center text-xs font-medium text-gray-500">
+                  {!approver && !signature ? 'Choose who to send it to and sign to submit.' : !approver ? 'Choose who to send it to.' : 'Sign the claim to submit it.'}
+                </p>
+              )}
               <button type="button" onClick={handleSaveDraft} disabled={busy} className="btn-secondary w-full">
                 {savingDraft ? <Spinner /> : <Save className="h-4 w-4" />}
                 {savingDraft ? 'Saving…' : 'Save as draft'}
@@ -168,7 +214,7 @@ const ReviewSummary = () => {
               </button>
               <p className="flex gap-2 pt-2 text-xs leading-relaxed text-gray-500">
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Once sent, your claim goes to your manager for review and can no longer be edited.
+                Once submitted, your claim goes to the manager you chose and can no longer be edited.
               </p>
             </div>
           </section>

@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { CircleCheck, Clock, FileText, MessageSquareQuote, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
 import AppLayout from '../../components/AppLayout';
 import EntryTable from '../../components/EntryTable';
+import ReviewTrail from '../../components/ReviewTrail';
 import { ClaimCardSkeleton, EmptyState, PageHeader, SignatureStamp, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
 import { useMyClaims, useProfile } from '../../hooks/useAppData';
 import { useFeedback } from '../../hooks/useFeedback';
@@ -156,6 +157,13 @@ const MyRequests = () => {
                 {(claim.entries || []).length > 0 && (
                   <div className="mt-5">
                     <EntryTable entries={toFormEntries(claim.entries)} />
+                  </div>
+                )}
+
+                {!isDraft && ((claim.review_trail || []).length > 0 || claim.current_approver_name) && (
+                  <div className="mt-5 rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+                    <p className="eyebrow mb-3">Progress</p>
+                    <ReviewTrail claim={claim} />
                   </div>
                 )}
 

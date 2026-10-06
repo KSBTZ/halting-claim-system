@@ -1,29 +1,48 @@
 import { useState } from 'react';
-import { Check, CircleCheck, CircleX, Clock, Inbox, MessageSquareQuote, Pencil, Search, Trash2, Wallet, X } from 'lucide-react';
+import { Check, ChevronDown, CircleCheck, CircleX, Clock, Forward, Inbox, MessageSquareQuote, Pencil, Search, Trash2, Wallet, X } from 'lucide-react';
 import { supabase } from '../../supabase/supabaseClient';
 import AppLayout from '../../components/AppLayout';
 import EntryEditor from '../../components/EntryEditor';
 import EntryTable from '../../components/EntryTable';
-import { ClaimCardSkeleton, EmptyState, PageHeader, SignatureStamp, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
-import { useAllClaims, useProfile } from '../../hooks/useAppData';
+import ReviewTrail from '../../components/ReviewTrail';
+import { Alert, ClaimCardSkeleton, EmptyState, PageHeader, SignatureStamp, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
+import { useAllClaims, useApprovers, useProfile } from '../../hooks/useAppData';
 import { useFeedback } from '../../hooks/useFeedback';
 import { refreshClaims } from '../../lib/queryClient';
 import { formatCurrency, formatDate, getClaimTotals, getInitials, pluralize } from '../../lib/format';
-import { deleteClaim, isEntryComplete, normalizeEntry, toEntryColumns, toFormEntries } from '../../lib/claims';
+import { decideClaim, deleteClaim, forwardClaim, isEntryComplete, normalizeEntry, recordAmendment, toEntryColumns, toFormEntries } from '../../lib/claims';
+import { approverLabel, forwardedBy, handledBy, higherApprovers, isFinalApprover, isUnrouted } from '../../lib/approvals';
 import { getStatusMeta } from '../../lib/status';
 
-const TABS = ['Pending', 'Approved', 'Disapproved'];
+// Each approver only sees claims waiting on them and ones they've dealt with.
+// Claims sent before routing existed have no approver, so every approver sees those.
+const TABS = [
+  { value: 'waiting', label: 'Waiting on me', match: (c, me) => c.status === 'Pending' && (c.current_approver_id === me || isUnrouted(c)) },
+  { value: 'forwarded', label: 'Forwarded', match: (c, me) => c.status === 'Pending' && c.current_approver_id !== me && !isUnrouted(c) && forwardedBy(c, me) },
+  { value: 'Approved', label: 'Approved', match: (c, me) => c.status === 'Approved' && (handledBy(c, me) || isUnrouted(c)) },
+  { value: 'Disapproved', label: 'Disapproved', match: (c, me) => c.status === 'Disapproved' && (handledBy(c, me) || isUnrouted(c)) },
+];
+
+const EMPTY = {
+  waiting: ["You're all caught up", 'Claims sent to you will appear here for review.'],
+  forwarded: ['Nothing forwarded', 'Claims you recommend and pass up the chain will show here until they are decided.'],
+  Approved: ['No approved claims', 'Claims you dealt with that end up approved will show here.'],
+  Disapproved: ['No disapproved claims', 'Claims you dealt with that end up disapproved will show here.'],
+};
 
 const ManagerInbox = () => {
   const { confirm, toast } = useFeedback();
   // Cached and refreshed every 20 seconds while the inbox is open
   const { data: profile } = useProfile();
-  const { data: claims = [], isPending: loading } = useAllClaims(Boolean(profile?.id));
-  const [activeTab, setActiveTab] = useState('Pending');
+  const { data: claims = [], isPending: loadingClaims } = useAllClaims(Boolean(profile?.id));
+  const { data: approvers = [], isPending: loadingApprovers } = useApprovers(Boolean(profile?.id));
+  const loading = loadingClaims || loadingApprovers;
+  const [activeTab, setActiveTab] = useState('waiting');
+  const [forwardTo, setForwardTo] = useState({}); // { [claimId]: approverId }
   const [search, setSearch] = useState('');
   const [comments, setComments] = useState({}); // { [claimId]: commentText }
   const [decidingId, setDecidingId] = useState(null); // claim currently being submitted
-  const [decidingAction, setDecidingAction] = useState(null); // 'Approved' or 'Disapproved' — which button is loading
+  const [decidingAction, setDecidingAction] = useState(null); // 'Approved' | 'Disapproved' | 'Forward' — which button is loading
   const [deletingId, setDeletingId] = useState(null); // claim currently being deleted
 
   const [amendingClaimId, setAmendingClaimId] = useState(null); // which claim is in edit mode
@@ -53,31 +72,43 @@ const ManagerInbox = () => {
     refreshClaims();
   };
 
-  const handleDecision = async (claimId, decision) => {
-    setDecidingId(claimId);
-    setDecidingAction(decision);
+  const me = profile ? { id: profile.id, staff_name: profile.staff_name, job_title: profile.job_title } : null;
+  const myLevel = profile?.approval_level ?? null;
+  const canGiveFinalApproval = isFinalApprover(approvers, myLevel);
+  const forwardOptions = higherApprovers(approvers, myLevel);
 
-    const { error } = await supabase
-      .from('claims')
-      .update({
-        status: decision,
-        manager_comment: comments[claimId] || null,
-        reviewed_at: new Date().toISOString(),
-        seen_by_employee: false,
-      })
-      .eq('id', claimId);
-
+  const runAction = async (claim, action, work, success) => {
+    setDecidingId(claim.id);
+    setDecidingAction(action);
+    const { status } = await work();
     setDecidingId(null);
     setDecidingAction(null);
 
-    if (error) {
-      console.error('Could not update claim:', error);
+    if (status !== 'ok') {
       toast('Could not update claim. Please try again.', { tone: 'error' });
       return;
     }
-
-    toast(`Claim ${decision.toLowerCase()}`, decision === 'Approved' ? { tone: 'success', icon: Check } : { tone: 'error', icon: X });
+    toast(...success);
     refreshClaims();
+  };
+
+  const handleDecision = (claim, decision) =>
+    runAction(
+      claim,
+      decision,
+      () => decideClaim({ claimId: claim.id, by: me, decision, comment: comments[claim.id] }),
+      decision === 'Approved' ? ['Claim approved', { tone: 'success', icon: Check }] : ['Claim disapproved', { tone: 'error', icon: X }]
+    );
+
+  const handleForward = (claim) => {
+    const to = forwardOptions.find((a) => a.id === forwardTo[claim.id]);
+    if (!to) return;
+    return runAction(
+      claim,
+      'Forward',
+      () => forwardClaim({ claimId: claim.id, by: me, to, comment: comments[claim.id] }),
+      [`Recommended and forwarded to ${to.staff_name}`, { tone: 'success', icon: Forward }]
+    );
   };
 
   // Enter edit mode for a claim: seed editedEntries with its current values
@@ -113,41 +144,50 @@ const ManagerInbox = () => {
       return;
     }
 
+    await recordAmendment({ claimId: amendingClaimId, by: me });
     toast('Claim amended', { tone: 'info', icon: Pencil });
     cancelAmend();
     refreshClaims();
   };
 
-  const countBy = (status) => claims.filter((c) => c.status === status).length;
-  const pendingCount = countBy('Pending');
-  const pendingValue = claims
-    .filter((c) => c.status === 'Pending')
-    .reduce((sum, c) => sum + getClaimTotals(c.entries).totalAllowance, 0);
+  const myId = profile?.id;
+  const inTab = (tab) => claims.filter((claim) => tab.match(claim, myId));
+  const tabs = TABS.map((tab) => ({ value: tab.value, label: tab.label, count: inTab(tab).length }));
+  const countOf = (value) => tabs.find((t) => t.value === value).count;
+  const waiting = inTab(TABS[0]);
+  const waitingValue = waiting.reduce((sum, c) => sum + getClaimTotals(c.entries).totalAllowance, 0);
 
   const query = search.trim().toLowerCase();
-  const filteredClaims = claims.filter(
-    (claim) =>
-      claim.status === activeTab &&
-      (!query || [claim.staff_name, claim.staff_no, claim.department].some((value) => value?.toLowerCase().includes(query)))
+  const filteredClaims = inTab(TABS.find((t) => t.value === activeTab)).filter(
+    (claim) => !query || [claim.staff_name, claim.staff_no, claim.department].some((value) => value?.toLowerCase().includes(query))
   );
 
-  const tabs = TABS.map((value) => ({ value, label: value, count: countBy(value) }));
   // Managers can't upload receipts, so amendments don't require one
   const amendmentValid = editedEntries.length > 0 && editedEntries.every((entry) => isEntryComplete(entry, { requireReceipt: false }));
 
   return (
-    <AppLayout role="manager" badges={{ pending: pendingCount }}>
+    <AppLayout role="manager" badges={{ pending: countOf('waiting') }}>
       <PageHeader
-        eyebrow="Manager"
+        eyebrow={profile?.job_title || 'Manager'}
         title="Claim inbox"
-        description="Review halting claims from staff: approve, amend or decline them."
+        description={
+          canGiveFinalApproval
+            ? 'Claims waiting for your final approval.'
+            : 'Review claims sent to you: recommend and forward them up the chain, or disapprove.'
+        }
       />
 
+      {!loading && myLevel == null && (
+        <div className="mb-6">
+          <Alert>Your account isn't set up as an approver yet, so claims can't be sent to you. Ask your admin to give it an approval level.</Alert>
+        </div>
+      )}
+
       <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <StatCard label="Awaiting review" value={pendingCount} icon={Clock} tone="amber" loading={loading} />
-        <StatCard label="Pending value" prefix="GHS" value={formatCurrency(pendingValue)} icon={Wallet} tone="sun" loading={loading} />
-        <StatCard label="Approved" value={countBy('Approved')} icon={CircleCheck} tone="brand" loading={loading} />
-        <StatCard label="Disapproved" value={countBy('Disapproved')} icon={CircleX} tone="red" loading={loading} />
+        <StatCard label="Waiting on me" value={countOf('waiting')} icon={Clock} tone="amber" loading={loading} />
+        <StatCard label="Value waiting" prefix="GHS" value={formatCurrency(waitingValue)} icon={Wallet} tone="sun" loading={loading} />
+        <StatCard label="Approved" value={countOf('Approved')} icon={CircleCheck} tone="brand" loading={loading} />
+        <StatCard label="Disapproved" value={countOf('Disapproved')} icon={CircleX} tone="red" loading={loading} />
       </div>
 
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -172,12 +212,12 @@ const ManagerInbox = () => {
         </div>
       ) : filteredClaims.length === 0 ? (
         query ? (
-          <EmptyState icon={Search} title="No matching claims" description={`Nothing in ${activeTab.toLowerCase()} matches "${search.trim()}".`} />
+          <EmptyState icon={Search} title="No matching claims" description={`Nothing here matches "${search.trim()}".`} />
         ) : (
           <EmptyState
-            icon={activeTab === 'Pending' ? Inbox : getStatusMeta(activeTab).icon}
-            title={activeTab === 'Pending' ? "You're all caught up" : `No ${activeTab.toLowerCase()} claims`}
-            description={activeTab === 'Pending' ? 'New claims from staff will appear here for review.' : `Claims you mark as ${activeTab.toLowerCase()} will show up here.`}
+            icon={activeTab === 'waiting' ? Inbox : activeTab === 'forwarded' ? Forward : getStatusMeta(activeTab).icon}
+            title={EMPTY[activeTab][0]}
+            description={EMPTY[activeTab][1]}
           />
         )
       ) : (
@@ -245,6 +285,12 @@ const ManagerInbox = () => {
                           <SignatureStamp src={claim.signature} name={claim.staff_name} date={claim.submitted_at} />
                         </div>
                       )}
+                      {!isUnrouted(claim) && (
+                        <div className="mt-5">
+                          <p className="eyebrow mb-3">History</p>
+                          <ReviewTrail claim={claim} />
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -260,32 +306,69 @@ const ManagerInbox = () => {
                     </button>
                     {!amendmentValid && <p className="w-full text-xs text-gray-500 sm:ml-auto sm:w-auto">Complete every field to save.</p>}
                   </footer>
-                ) : claim.status === 'Pending' ? (
+                ) : activeTab === 'waiting' ? (
                   <footer className="border-t border-gray-100 bg-gray-50/60 px-4 py-4 sm:px-6 sm:py-5">
                     <label htmlFor={`comment-${claim.id}`} className="field-label">
-                      Comment for employee <span className="font-normal text-gray-400">(optional)</span>
+                      Comment <span className="font-normal text-gray-400">(optional, the employee{canGiveFinalApproval ? '' : ' and the next approver'} will see it)</span>
                     </label>
                     <textarea
                       id={`comment-${claim.id}`}
                       value={comments[claim.id] || ''}
                       onChange={(e) => setComments({ ...comments, [claim.id]: e.target.value })}
-                      placeholder="Add a note the employee will see with your decision…"
+                      placeholder={canGiveFinalApproval ? 'Add a note to go with your decision…' : 'Add a note for the next approver…'}
                       rows={2}
                       className="field-input resize-y"
                     />
+                    {!canGiveFinalApproval && (
+                      <div className="mt-4">
+                        <label htmlFor={`forward-${claim.id}`} className="field-label">Recommend and forward to</label>
+                        {forwardOptions.length ? (
+                          <div className="relative sm:max-w-sm">
+                            <select
+                              id={`forward-${claim.id}`}
+                              value={forwardTo[claim.id] || ''}
+                              onChange={(e) => setForwardTo({ ...forwardTo, [claim.id]: e.target.value })}
+                              className={`field-input cursor-pointer appearance-none pr-10 ${forwardTo[claim.id] ? '' : 'text-gray-400'}`}
+                            >
+                              <option value="" disabled>Choose who reviews it next</option>
+                              {forwardOptions.map((option) => (
+                                <option key={option.id} value={option.id} className="text-gray-900">
+                                  {approverLabel(option)}
+                                </option>
+                              ))}
+                            </select>
+                            <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-500">No one above you is set up to approve claims yet.</p>
+                        )}
+                      </div>
+                    )}
                     <div className="mt-4 flex flex-wrap gap-2">
+                      {canGiveFinalApproval ? (
+                        <button
+                          type="button"
+                          onClick={() => handleDecision(claim, 'Approved')}
+                          disabled={isDeciding || amendingClaimId !== null}
+                          className="btn-primary flex-1 sm:flex-none"
+                        >
+                          {isDeciding && decidingAction === 'Approved' ? <Spinner /> : <Check className="h-4 w-4" strokeWidth={3} />}
+                          {isDeciding && decidingAction === 'Approved' ? 'Approving…' : 'Give final approval'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleForward(claim)}
+                          disabled={isDeciding || amendingClaimId !== null || !forwardTo[claim.id]}
+                          className="btn-primary flex-1 sm:flex-none"
+                        >
+                          {isDeciding && decidingAction === 'Forward' ? <Spinner /> : <Forward className="h-4 w-4" strokeWidth={2.5} />}
+                          {isDeciding && decidingAction === 'Forward' ? 'Forwarding…' : 'Recommend & forward'}
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => handleDecision(claim.id, 'Approved')}
-                        disabled={isDeciding || amendingClaimId !== null}
-                        className="btn-primary flex-1 sm:flex-none"
-                      >
-                        {isDeciding && decidingAction === 'Approved' ? <Spinner /> : <Check className="h-4 w-4" strokeWidth={3} />}
-                        {isDeciding && decidingAction === 'Approved' ? 'Approving…' : 'Approve'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDecision(claim.id, 'Disapproved')}
+                        onClick={() => handleDecision(claim, 'Disapproved')}
                         disabled={isDeciding || amendingClaimId !== null}
                         className="btn-danger-soft flex-1 sm:flex-none"
                       >
@@ -302,6 +385,11 @@ const ManagerInbox = () => {
                         Amend
                       </button>
                     </div>
+                  </footer>
+                ) : claim.status === 'Pending' ? (
+                  <footer className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-gray-100 bg-gray-50/60 px-4 py-3.5 text-sm text-gray-600 sm:px-6">
+                    <StatusBadge status="Pending" />
+                    Waiting on <span className="font-semibold text-gray-900">{approverLabel({ staff_name: claim.current_approver_name, job_title: claim.current_approver_title })}</span>
                   </footer>
                 ) : (
                   <footer className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-gray-100 bg-gray-50/60 px-4 py-3.5 sm:px-6">

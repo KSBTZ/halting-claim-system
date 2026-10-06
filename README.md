@@ -3,7 +3,15 @@
 A web app for SIC Life staff to submit **halting (overnight allowance) claims** and for managers to review them.
 
 - **Employees** fill in a claim (up to 3 trips: places, dates and allowance), then review, sign and send it, or save it as a draft. Nights are counted from the dates. Accommodation claims need the PDF receipt. My Requests tracks each claim's status and shows the manager's comments.
-- **Managers** get an inbox of every claim, filtered by status and searchable by name, staff number or department. From there they approve, disapprove, amend entries or delete claims.
+- **Approvers** work in a chain. The employee sends a claim to a first-level manager; managers recommend and forward it to someone more senior, or disapprove it; only the highest level (e.g. the Managing Director) gives final approval. Each approver's inbox shows claims waiting on them and ones they've handled, with the full history on every claim.
+
+### Setting up approvers
+
+An approver is a `profiles` row with `role = 'manager'` and an `approval_level` (1 = first level, higher = more senior; the highest level gives final approval). New staff sign up as employees; to make someone an approver, edit their row in Supabase → Table Editor → profiles, or run:
+
+```sql
+update profiles set role = 'manager', job_title = 'Managing Director', approval_level = 2 where staff_no = 'SIC12345';
+```
 
 Built with React 19, Vite, Tailwind CSS, TanStack Query and Supabase (auth, Postgres, storage).
 
@@ -42,6 +50,7 @@ src/
     DatePicker.jsx       Calendar date field (dd/mm/yyyy) with an Ok/Cancel dialog
     EntryTable.jsx       Read-only entries list, adapts to its container width
     ReceiptField.jsx     Receipt PDF upload and "View receipt" link
+    ReviewTrail.jsx      A claim's history: submitted, forwarded, approved…
     SignaturePad.jsx     Draw-to-sign box for mouse or finger
     UpdateBanner.jsx     "New version ready" prompt after a deploy
     ui.jsx               Small building blocks: badges, tabs, stat cards, stepper…
@@ -50,6 +59,7 @@ src/
     useFeedback.js    toast() and confirm() from anywhere in the app
     useNewVersion.js  Detects a newer deploy via /version.json
   lib/
+    approvals.js     Approval chain rules (levels, who can forward to whom, final approval)
     claims.js        Claim rules (limits, validation, nights, fixed all-inclusive rate, totals) and Supabase claim operations
     departments.js   Department list for the sign-up dropdown
     receipts.js      Receipt upload and signed links (Supabase Storage)
