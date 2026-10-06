@@ -5,10 +5,10 @@ import { supabase } from '../../supabase/supabaseClient';
 import AppLayout from '../../components/AppLayout';
 import EntryEditor from '../../components/EntryEditor';
 import EntryTable from '../../components/EntryTable';
-import { ClaimCardSkeleton, EmptyState, PageHeader, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
+import { ClaimCardSkeleton, EmptyState, PageHeader, SignatureStamp, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
 import { useFeedback } from '../../hooks/useFeedback';
 import { formatCurrency, formatDate, getClaimTotals, getInitials, pluralize } from '../../lib/format';
-import { deleteClaim, isEntryComplete, toEntryColumns, toFormEntries } from '../../lib/claims';
+import { deleteClaim, isEntryComplete, normalizeEntry, toEntryColumns, toFormEntries } from '../../lib/claims';
 import { getStatusMeta } from '../../lib/status';
 
 const TABS = ['Pending', 'Approved', 'Disapproved'];
@@ -138,7 +138,7 @@ const ManagerInbox = () => {
   };
 
   const updateEditedField = (entryId, field, value) => {
-    setEditedEntries((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, [field]: value } : entry)));
+    setEditedEntries((prev) => prev.map((entry) => (entry.id === entryId ? normalizeEntry({ ...entry, [field]: value }) : entry)));
   };
 
   const saveAmendment = async () => {
@@ -177,7 +177,8 @@ const ManagerInbox = () => {
   );
 
   const tabs = TABS.map((value) => ({ value, label: value, count: countBy(value) }));
-  const amendmentValid = editedEntries.length > 0 && editedEntries.every(isEntryComplete);
+  // Managers can't upload receipts, so amendments don't require one
+  const amendmentValid = editedEntries.length > 0 && editedEntries.every((entry) => isEntryComplete(entry, { requireReceipt: false }));
 
   return (
     <AppLayout role="manager" userName={managerName} badges={{ pending: pendingCount }}>
@@ -278,11 +279,18 @@ const ManagerInbox = () => {
                         Editing entries: changes are saved to the employee's claim.
                       </p>
                       {editedEntries.map((entry, i) => (
-                        <EntryEditor key={entry.id} entry={entry} index={i} onChange={updateEditedField} />
+                        <EntryEditor key={entry.id} entry={entry} index={i} onChange={updateEditedField} receiptReadOnly />
                       ))}
                     </div>
                   ) : (
-                    <EntryTable entries={toFormEntries(claim.entries)} />
+                    <>
+                      <EntryTable entries={toFormEntries(claim.entries)} />
+                      {claim.signature && (
+                        <div className="mt-4">
+                          <SignatureStamp src={claim.signature} name={claim.staff_name} date={claim.submitted_at} />
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 

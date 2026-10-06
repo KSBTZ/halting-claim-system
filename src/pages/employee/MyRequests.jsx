@@ -4,7 +4,7 @@ import { CircleCheck, Clock, FileText, MessageSquareQuote, Pencil, Plus, Trash2,
 import { supabase } from '../../supabase/supabaseClient';
 import AppLayout from '../../components/AppLayout';
 import EntryTable from '../../components/EntryTable';
-import { ClaimCardSkeleton, EmptyState, PageHeader, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
+import { ClaimCardSkeleton, EmptyState, PageHeader, SignatureStamp, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
 import { useFeedback } from '../../hooks/useFeedback';
 import { formatCurrency, formatDate, getClaimTotals, pluralize } from '../../lib/format';
 import { deleteClaim, toFormEntries } from '../../lib/claims';
@@ -194,6 +194,12 @@ const MyRequests = () => {
                 {(claim.entries || []).length > 0 && (
                   <div className="mt-5">
                     <EntryTable entries={toFormEntries(claim.entries)} />
+                  </div>
+                )}
+
+                {claim.signature && (
+                  <div className="mt-4">
+                    <SignatureStamp src={claim.signature} name={claim.staff_name} date={claim.submitted_at} />
                   </div>
                 )}
 

@@ -26,18 +26,34 @@
 | submitted_at | timestamp | auto |
 | reviewed_at | timestamp | optional |
 | seen_by_employee | boolean | set to false when a manager decides; cleared by `mark_own_claims_seen()` |
+| signature | text | employee's signature as a PNG data URL, required when sending |
 
 ## entries
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid | auto-generated |
 | claim_id | uuid | references claims(id) |
-| date | date | |
+| date | date | the day the claim was saved or sent (set automatically) |
 | from_date | date | start of the halting period |
 | to_date | date | end of the halting period |
-| number_of_nights | int | |
+| from_location | text | where the trip started, e.g. Accra, Head Office |
+| to_location | text | where the trip went, e.g. Kumasi branch |
+| number_of_nights | int | calculated from from_date and to_date |
 | work_description | text | |
-| allowance_entitled | numeric | |
+| allowance_type | text | 'all_inclusive' or 'accommodation' (null on entries from before this existed) |
+| accommodation_amount | numeric | accommodation entries only |
+| pocket_allowance | numeric | accommodation entries only |
+| tnt_allowance | numeric | T&T allowance, accommodation entries only |
+| receipt_path | text | path of the PDF receipt in the `receipts` bucket, required for accommodation |
+| allowance_entitled | numeric | entry total: the all-inclusive amount, or accommodation + pocket + T&T |
+
+## Storage
+
+| Bucket | Access | Notes |
+|---|---|---|
+| receipts | private | PDF only, 5 MB max. Files live at `<user id>/<timestamp>-<name>.pdf`. Employees can upload, read and delete their own; managers can read all. Links are short-lived signed URLs. |
+
+Database changes live in `supabase/migrations/`. Run each new file once in the Supabase SQL Editor.
 
 ## RPC functions
 
