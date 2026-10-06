@@ -2,7 +2,14 @@
 -- Run once in Supabase: SQL Editor → New query → paste → Run.
 -- Only adds columns, a bucket and policies, so the current site keeps working. Safe to run again.
 
--- 1. Entries: where the trip went and how the allowance is made up
+-- Tables are changed in the order the app reads them (claims, then entries)
+-- so the script doesn't deadlock with someone using the site.
+-- If it ever does, nothing is applied: just click Run again.
+
+-- 1. Claims: the employee's signature, stored as a PNG data URL
+alter table public.claims add column if not exists signature text;
+
+-- 2. Entries: where the trip went and how the allowance is made up
 alter table public.entries
   add column if not exists from_location text,
   add column if not exists to_location text,
@@ -16,9 +23,6 @@ alter table public.entries drop constraint if exists entries_allowance_type_chec
 alter table public.entries
   add constraint entries_allowance_type_check
   check (allowance_type is null or allowance_type in ('all_inclusive', 'accommodation'));
-
--- 2. Claims: the employee's signature, stored as a PNG data URL
-alter table public.claims add column if not exists signature text;
 
 -- 3. Private bucket for accommodation receipts: PDF only, 5 MB max
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
