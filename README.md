@@ -2,7 +2,7 @@
 
 A web app for SIC Life staff to submit **halting (overnight allowance) claims** and for managers to review them.
 
-- **Employees** fill in a claim (up to 3 entries), review it, then send it or save it as a draft. My Requests tracks each claim's status and shows the manager's comments.
+- **Employees** fill in a claim (up to 3 trips: places, dates and allowance), then review, sign and send it, or save it as a draft. Nights are counted from the dates. Accommodation claims need the PDF receipt. My Requests tracks each claim's status and shows the manager's comments.
 - **Managers** get an inbox of every claim, filtered by status and searchable by name, staff number or department. From there they approve, disapprove, amend entries or delete claims.
 
 Built with React 19, Vite, Tailwind CSS and Supabase (auth + Postgres).
@@ -24,6 +24,10 @@ npm run dev
 
 The app is deployed on Vercel; `vercel.json` rewrites every path to `index.html` so client-side routes survive a refresh.
 
+## Database setup
+
+The app expects the tables, columns and storage bucket described in [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md). When a new file appears in `supabase/migrations/`, open Supabase → **SQL Editor** → **New query**, paste the file in and click **Run**, once, before deploying the code that needs it. The scripts are safe to run again.
+
 ## Project structure
 
 ```
@@ -34,10 +38,14 @@ src/
     FeedbackProvider.jsx Toasts and confirm dialogs (use via useFeedback)
     EntryEditor.jsx      Editable claim entry (New Claim, manager Amend)
     EntryTable.jsx       Read-only entries list, adapts to its container width
+    ReceiptField.jsx     Receipt PDF upload and "View receipt" link
+    SignaturePad.jsx     Draw-to-sign box for mouse or finger
     ui.jsx               Small building blocks: badges, tabs, stat cards, stepper…
   hooks/useFeedback.js  toast() and confirm() from anywhere in the app
   lib/
-    claims.js        Claim rules (limits, validation) and Supabase claim operations
+    claims.js        Claim rules (limits, validation, nights, allowance totals) and Supabase claim operations
+    departments.js   Department list for the sign-up dropdown
+    receipts.js      Receipt upload and signed links (Supabase Storage)
     format.js        Currency, date and name formatting
     status.js        Colours and icons for each claim status
   pages/             One file per route (see DATABASE_SCHEMA.md for the route list)

@@ -3,8 +3,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import { ArrowRight, BadgeCent, Briefcase, Hash, Mail, RefreshCw, ShieldCheck, User } from 'lucide-react';
 import { supabase } from '../supabase/supabaseClient';
 import AuthLayout from '../components/AuthLayout';
-import { IconInput, PasswordInput } from '../components/AuthFields';
+import { IconInput, IconSelect, PasswordInput } from '../components/AuthFields';
 import { Alert, Spinner } from '../components/ui';
+import { DEPARTMENT_OPTIONS } from '../lib/departments';
 
 const generateCaptchaCode = () => Math.floor(10000 + Math.random() * 90000).toString();
 
@@ -137,15 +138,14 @@ const Signup = () => {
         />
 
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-          <IconInput
+          <IconSelect
             id="signup-department"
             label="Department"
             icon={Briefcase}
-            type="text"
-            autoComplete="organization-title"
+            options={DEPARTMENT_OPTIONS}
+            placeholder="Select department"
             value={department}
-            onChange={(e) => setDepartment(e.target.value.toUpperCase())}
-            placeholder="e.g. FINANCE"
+            onChange={(e) => setDepartment(e.target.value)}
           />
           <IconInput
             id="signup-grade"

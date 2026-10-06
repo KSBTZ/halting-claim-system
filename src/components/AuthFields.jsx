@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, EyeOff, Lock } from 'lucide-react';
+import { ChevronDown, Eye, EyeOff, Lock } from 'lucide-react';
 
 export const IconInput = ({ id, label, icon: Icon, hint, trailing, className = '', ...props }) => (
   <div className={className}>
@@ -13,6 +13,27 @@ export const IconInput = ({ id, label, icon: Icon, hint, trailing, className = '
       {trailing && <div className="absolute inset-y-0 right-0 flex items-center pr-1.5">{trailing}</div>}
     </div>
     {hint && <p className="mt-1.5 text-xs text-gray-500">{hint}</p>}
+  </div>
+);
+
+export const IconSelect = ({ id, label, icon: Icon, options, placeholder, value, className = '', ...props }) => (
+  <div className={className}>
+    <label htmlFor={id} className="field-label">{label}</label>
+    <div className="group relative">
+      <Icon
+        className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-400 transition-colors group-focus-within:text-brand-600"
+        strokeWidth={2.25}
+      />
+      <select id={id} value={value} className={`field-input cursor-pointer appearance-none py-3 pl-11 pr-10 ${value ? '' : 'text-gray-400'}`} {...props}>
+        <option value="" disabled>{placeholder}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value} className="text-gray-900">
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+    </div>
   </div>
 );
 

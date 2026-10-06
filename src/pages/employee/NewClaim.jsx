@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowRight, Plus, Save } from 'lucide-react';
+import { ArrowRight, CalendarDays, Lock, Plus, Save } from 'lucide-react';
 import { supabase } from '../../supabase/supabaseClient';
 import AppLayout from '../../components/AppLayout';
 import EntryEditor from '../../components/EntryEditor';
 import StaffDetailsCard from '../../components/StaffDetailsCard';
 import { PageHeader, Spinner, Stepper } from '../../components/ui';
 import { useFeedback } from '../../hooks/useFeedback';
-import { formatCurrency, getClaimTotals, todayISO } from '../../lib/format';
-import { CLAIM_STEPS, MAX_DRAFTS, MAX_ENTRIES, emptyEntry, isEntryComplete, saveDraft } from '../../lib/claims';
+import { formatCurrency, formatDate, getClaimTotals, todayISO } from '../../lib/format';
+import { CLAIM_STEPS, MAX_DRAFTS, MAX_ENTRIES, emptyEntry, isEntryComplete, normalizeEntry, saveDraft } from '../../lib/claims';
 
 const NewClaim = () => {
   const navigate = useNavigate();
@@ -25,15 +25,19 @@ const NewClaim = () => {
   );
   const [loadingProfile, setLoadingProfile] = useState(!location.state?.staffDetails);
 
+  // The claim is always dated today, including drafts picked up again later
+  const today = todayISO();
   const [claimEntries, setClaimEntries] = useState(() =>
-    location.state?.claimEntries?.length ? location.state.claimEntries : [emptyEntry(1, todayISO())]
+    location.state?.claimEntries?.length
+      ? location.state.claimEntries.map((entry) => normalizeEntry({ ...emptyEntry(entry.id), ...entry, date: today }))
+      : [emptyEntry(1, today)]
   );
 
   const [advancingToReview, setAdvancingToReview] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const draftClaimId = location.state?.draftClaimId || null;
 
-  const isFormComplete = claimEntries.length > 0 && claimEntries.every(isEntryComplete);
+  const isFormComplete = claimEntries.length > 0 && claimEntries.every((entry) => isEntryComplete(entry));
   const { totalNights, totalAllowance } = getClaimTotals(claimEntries);
 
   useEffect(() => {
@@ -69,7 +73,7 @@ const NewClaim = () => {
   const addRow = () => {
     if (claimEntries.length >= MAX_ENTRIES) return;
     const newId = claimEntries.length ? Math.max(...claimEntries.map((e) => Number(e.id) || 0)) + 1 : 1;
-    setClaimEntries([...claimEntries, emptyEntry(newId, todayISO())]);
+    setClaimEntries([...claimEntries, emptyEntry(newId, today)]);
   };
 
   const removeRow = (id) => {
@@ -78,7 +82,7 @@ const NewClaim = () => {
   };
 
   const updateEntry = (id, field, value) => {
-    setClaimEntries(claimEntries.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry)));
+    setClaimEntries((current) => current.map((entry) => (entry.id === id ? normalizeEntry({ ...entry, [field]: value }) : entry)));
   };
 
   const handleNext = async () => {
@@ -119,7 +123,7 @@ const NewClaim = () => {
       <PageHeader
         eyebrow={draftClaimId ? 'Continuing a draft' : 'Halting claim'}
         title="New claim"
-        description={`Record the nights you worked away from your station. You can add up to ${MAX_ENTRIES} entries per claim.`}
+        description={`Record the trips you made away from your station. You can add up to ${MAX_ENTRIES} entries per claim.`}
       />
       <Stepper steps={CLAIM_STEPS} current={0} />
 
@@ -145,6 +149,11 @@ const NewClaim = () => {
               <div>
                 <h2 className="font-heading text-base font-bold text-gray-900 sm:text-lg">Claim entries</h2>
                 <p className="mt-0.5 text-sm text-gray-500">Add one entry for each halting trip.</p>
+                <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-800 ring-1 ring-brand-100">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  Claim date: {formatDate(today)}
+                  <Lock className="h-3 w-3 text-brand-600" aria-label="Set automatically" />
+                </p>
               </div>
               <span className="tabular whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600">
                 {claimEntries.length} of {MAX_ENTRIES}

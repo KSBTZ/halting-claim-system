@@ -1,4 +1,5 @@
 import { Check, CircleAlert, LoaderCircle } from 'lucide-react';
+import { formatDate } from '../lib/format';
 import { getStatusMeta } from '../lib/status';
 
 export const Spinner = ({ className = 'h-4 w-4' }) => <LoaderCircle className={`animate-spin ${className}`} aria-hidden="true" />;
@@ -148,6 +149,16 @@ export const ClaimCardSkeleton = () => (
     <div className="mt-6 space-y-3">
       <div className="skeleton h-10 w-full rounded-xl" />
       <div className="skeleton h-10 w-full rounded-xl" />
+    </div>
+  </div>
+);
+
+export const SignatureStamp = ({ src, name, date }) => (
+  <div className="inline-flex max-w-full items-center gap-4 rounded-xl border border-gray-200 bg-white px-4 py-2.5">
+    <img src={src} alt={`${name}'s signature`} className="h-12 w-auto max-w-[10rem] object-contain" />
+    <div className="min-w-0 border-l border-gray-200 pl-4 text-xs text-gray-500">
+      <p className="truncate font-semibold text-gray-700">Signed by {name}</p>
+      {date && <p>{formatDate(date)}</p>}
     </div>
   </div>
 );
