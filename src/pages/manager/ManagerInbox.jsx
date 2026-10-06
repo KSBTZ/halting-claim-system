@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, ChevronDown, CircleCheck, CircleX, Clock, Forward, Inbox, MessageSquareQuote, Pencil, Search, Trash2, Wallet, X } from 'lucide-react';
+import { Check, ChevronDown, CircleCheck, CircleX, Clock, Forward, Inbox, MessageSquareQuote, Pencil, Search, Wallet, X } from 'lucide-react';
 import { supabase } from '../../supabase/supabaseClient';
 import AppLayout from '../../components/AppLayout';
 import EntryEditor from '../../components/EntryEditor';
@@ -10,8 +10,8 @@ import { useAllClaims, useApprovers, useProfile } from '../../hooks/useAppData';
 import { useFeedback } from '../../hooks/useFeedback';
 import { refreshClaims } from '../../lib/queryClient';
 import { formatCurrency, formatDate, getClaimTotals, getInitials, pluralize } from '../../lib/format';
-import { decideClaim, deleteClaim, forwardClaim, isEntryComplete, normalizeEntry, recordAmendment, toEntryColumns, toFormEntries } from '../../lib/claims';
-import { approverLabel, forwardedBy, handledBy, higherApprovers, isFinalApprover, isUnrouted } from '../../lib/approvals';
+import { decideClaim, forwardClaim, isEntryComplete, normalizeEntry, recordAmendment, toEntryColumns, toFormEntries } from '../../lib/claims';
+import { INBOX_KEEP_DAYS, approverLabel, forwardedBy, handledBy, higherApprovers, isFinalApprover, isRecentlyDecided, isUnrouted } from '../../lib/approvals';
 import { getStatusMeta } from '../../lib/status';
 
 // Each approver only sees claims waiting on them and ones they've dealt with.
@@ -19,19 +19,19 @@ import { getStatusMeta } from '../../lib/status';
 const TABS = [
   { value: 'waiting', label: 'Waiting on me', match: (c, me) => c.status === 'Pending' && (c.current_approver_id === me || isUnrouted(c)) },
   { value: 'forwarded', label: 'Forwarded', match: (c, me) => c.status === 'Pending' && c.current_approver_id !== me && !isUnrouted(c) && forwardedBy(c, me) },
-  { value: 'Approved', label: 'Approved', match: (c, me) => c.status === 'Approved' && (handledBy(c, me) || isUnrouted(c)) },
-  { value: 'Disapproved', label: 'Disapproved', match: (c, me) => c.status === 'Disapproved' && (handledBy(c, me) || isUnrouted(c)) },
+  { value: 'Approved', label: 'Approved', match: (c, me) => c.status === 'Approved' && (handledBy(c, me) || isUnrouted(c)) && isRecentlyDecided(c) },
+  { value: 'Disapproved', label: 'Disapproved', match: (c, me) => c.status === 'Disapproved' && (handledBy(c, me) || isUnrouted(c)) && isRecentlyDecided(c) },
 ];
 
 const EMPTY = {
   waiting: ["You're all caught up", 'Claims sent to you will appear here for review.'],
   forwarded: ['Nothing forwarded', 'Claims you recommend and pass up the chain will show here until they are decided.'],
-  Approved: ['No approved claims', 'Claims you dealt with that end up approved will show here.'],
-  Disapproved: ['No disapproved claims', 'Claims you dealt with that end up disapproved will show here.'],
+  Approved: ['No approved claims', `Claims you dealt with that were approved in the last ${INBOX_KEEP_DAYS} days show here.`],
+  Disapproved: ['No disapproved claims', `Claims you dealt with that were disapproved in the last ${INBOX_KEEP_DAYS} days show here.`],
 };
 
 const ManagerInbox = () => {
-  const { confirm, toast } = useFeedback();
+  const { toast } = useFeedback();
   // Cached and refreshed every 20 seconds while the inbox is open
   const { data: profile } = useProfile();
   const { data: claims = [], isPending: loadingClaims } = useAllClaims(Boolean(profile?.id));
@@ -43,34 +43,10 @@ const ManagerInbox = () => {
   const [comments, setComments] = useState({}); // { [claimId]: commentText }
   const [decidingId, setDecidingId] = useState(null); // claim currently being submitted
   const [decidingAction, setDecidingAction] = useState(null); // 'Approved' | 'Disapproved' | 'Forward' — which button is loading
-  const [deletingId, setDeletingId] = useState(null); // claim currently being deleted
 
   const [amendingClaimId, setAmendingClaimId] = useState(null); // which claim is in edit mode
   const [editedEntries, setEditedEntries] = useState([]); // form-shaped copies of that claim's entries
   const [savingAmendment, setSavingAmendment] = useState(false);
-
-  const handleDelete = async (claim) => {
-    const confirmed = await confirm({
-      title: 'Delete this claim?',
-      message: `${claim.staff_name}'s claim and all of its entries will be permanently removed. This cannot be undone.`,
-      confirmLabel: 'Delete claim',
-      tone: 'danger',
-    });
-    if (!confirmed) return;
-
-    setDeletingId(claim.id);
-    const { error } = await deleteClaim(claim.id);
-    setDeletingId(null);
-
-    if (error) {
-      console.error('Could not delete claim:', error);
-      toast('Could not delete claim. Please try again.', { tone: 'error' });
-      return;
-    }
-
-    toast('Claim deleted', { tone: 'info', icon: Trash2 });
-    refreshClaims();
-  };
 
   const me = profile ? { id: profile.id, staff_name: profile.staff_name, job_title: profile.job_title } : null;
   const myLevel = profile?.approval_level ?? null;
@@ -254,16 +230,6 @@ const ManagerInbox = () => {
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(claim)}
-                    disabled={deletingId === claim.id}
-                    title="Delete claim"
-                    aria-label={`Delete ${claim.staff_name}'s claim`}
-                    className="icon-btn -mr-1 -mt-1 hover:bg-red-50 hover:text-red-600"
-                  >
-                    {deletingId === claim.id ? <Spinner className="h-5 w-5 text-red-500" /> : <Trash2 className="h-5 w-5" />}
-                  </button>
                 </header>
 
                 <div className="px-4 pb-5 sm:px-6 sm:pb-6">
@@ -406,6 +372,11 @@ const ManagerInbox = () => {
               </article>
             );
           })}
+          {(activeTab === 'Approved' || activeTab === 'Disapproved') && (
+            <p className="pt-1 text-center text-xs text-gray-500">
+              Finished claims leave this list {INBOX_KEEP_DAYS} days after the final decision. The employee keeps them in My Requests.
+            </p>
+          )}
         </div>
       )}
     </AppLayout>
