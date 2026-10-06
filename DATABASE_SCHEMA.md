@@ -45,7 +45,7 @@
 | pocket_allowance | numeric | accommodation entries only |
 | tnt_allowance | numeric | T&T allowance, accommodation entries only |
 | receipt_path | text | path of the PDF receipt in the `receipts` bucket, required for accommodation |
-| allowance_entitled | numeric | entry total: the all-inclusive amount, or accommodation + pocket + T&T |
+| allowance_entitled | numeric | entry total: nights × the fixed all-inclusive rate (`ALL_INCLUSIVE_RATE_PER_NIGHT` in `src/lib/claims.js`), or accommodation + pocket + T&T |
 
 ## Storage
 

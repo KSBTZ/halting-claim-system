@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowRight, CalendarDays, Lock, Plus, Save } from 'lucide-react';
-import { supabase } from '../../supabase/supabaseClient';
 import AppLayout from '../../components/AppLayout';
 import EntryEditor from '../../components/EntryEditor';
 import StaffDetailsCard from '../../components/StaffDetailsCard';
 import { PageHeader, Spinner, Stepper } from '../../components/ui';
+import { useProfile } from '../../hooks/useAppData';
 import { useFeedback } from '../../hooks/useFeedback';
+import { refreshClaims } from '../../lib/queryClient';
 import { formatCurrency, formatDate, getClaimTotals, todayISO } from '../../lib/format';
 import { CLAIM_STEPS, MAX_DRAFTS, MAX_ENTRIES, emptyEntry, isEntryComplete, normalizeEntry, saveDraft } from '../../lib/claims';
 
@@ -15,15 +16,16 @@ const NewClaim = () => {
   const location = useLocation();
   const { confirm, toast } = useFeedback();
 
-  const [staffDetails, setStaffDetails] = useState(
-    location.state?.staffDetails || {
-      staff_name: '',
-      department: '',
-      grade: '',
-      staff_no: '',
-    }
-  );
-  const [loadingProfile, setLoadingProfile] = useState(!location.state?.staffDetails);
+  // Staff details come with a draft or the Edit flow; otherwise from the (cached) profile
+  const { data: profile, isPending: profilePending } = useProfile();
+  const passedDetails = location.state?.staffDetails;
+  const loadingProfile = !passedDetails && profilePending;
+  const staffDetails = passedDetails || {
+    staff_name: profile?.staff_name || '',
+    department: profile?.department || '',
+    grade: profile?.grade || '',
+    staff_no: profile?.staff_no || '',
+  };
 
   // The claim is always dated today, including drafts picked up again later
   const today = todayISO();
@@ -39,36 +41,6 @@ const NewClaim = () => {
 
   const isFormComplete = claimEntries.length > 0 && claimEntries.every((entry) => isEntryComplete(entry));
   const { totalNights, totalAllowance } = getClaimTotals(claimEntries);
-
-  useEffect(() => {
-    // Already have staff details passed in from the Edit flow — no need to refetch
-    if (location.state?.staffDetails) return;
-
-    const fetchProfile = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        navigate('/');
-        return;
-      }
-
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('staff_name, department, grade, staff_no')
-        .eq('id', user.id)
-        .single();
-
-      if (error || !profile) {
-        console.error('Could not load profile:', error);
-      } else {
-        setStaffDetails(profile);
-      }
-
-      setLoadingProfile(false);
-    };
-
-    fetchProfile();
-  }, [navigate, location.state]);
 
   const addRow = () => {
     if (claimEntries.length >= MAX_ENTRIES) return;
@@ -113,13 +85,14 @@ const NewClaim = () => {
     } else if (status === 'error') {
       toast('Could not save draft. Please try again.', { tone: 'error' });
     } else {
+      await refreshClaims();
       toast('Draft saved');
       navigate('/employee/my-requests');
     }
   };
 
   return (
-    <AppLayout role="employee" userName={loadingProfile ? null : staffDetails.staff_name}>
+    <AppLayout role="employee">
       <PageHeader
         eyebrow={draftClaimId ? 'Continuing a draft' : 'Halting claim'}
         title="New claim"

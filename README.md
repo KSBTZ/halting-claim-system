@@ -5,7 +5,9 @@ A web app for SIC Life staff to submit **halting (overnight allowance) claims** 
 - **Employees** fill in a claim (up to 3 trips: places, dates and allowance), then review, sign and send it, or save it as a draft. Nights are counted from the dates. Accommodation claims need the PDF receipt. My Requests tracks each claim's status and shows the manager's comments.
 - **Managers** get an inbox of every claim, filtered by status and searchable by name, staff number or department. From there they approve, disapprove, amend entries or delete claims.
 
-Built with React 19, Vite, Tailwind CSS and Supabase (auth + Postgres).
+Built with React 19, Vite, Tailwind CSS, TanStack Query and Supabase (auth, Postgres, storage).
+
+Data is cached in memory, so moving between pages is instant, and refreshes in the background: the manager inbox every 20 seconds, employee pages every 30, and whenever the tab comes back into view. Open tabs check for a newer deploy and offer a **Refresh** button when one is live.
 
 ## Getting started
 
@@ -37,16 +39,22 @@ src/
     AuthLayout.jsx       Branded split layout for Login / Signup
     FeedbackProvider.jsx Toasts and confirm dialogs (use via useFeedback)
     EntryEditor.jsx      Editable claim entry (New Claim, manager Amend)
+    DatePicker.jsx       Calendar date field (dd/mm/yyyy) with an Ok/Cancel dialog
     EntryTable.jsx       Read-only entries list, adapts to its container width
     ReceiptField.jsx     Receipt PDF upload and "View receipt" link
     SignaturePad.jsx     Draw-to-sign box for mouse or finger
+    UpdateBanner.jsx     "New version ready" prompt after a deploy
     ui.jsx               Small building blocks: badges, tabs, stat cards, stepper…
-  hooks/useFeedback.js  toast() and confirm() from anywhere in the app
+  hooks/
+    useAppData.js     Cached Supabase queries (profile, claims, unseen count) with auto refresh
+    useFeedback.js    toast() and confirm() from anywhere in the app
+    useNewVersion.js  Detects a newer deploy via /version.json
   lib/
-    claims.js        Claim rules (limits, validation, nights, allowance totals) and Supabase claim operations
+    claims.js        Claim rules (limits, validation, nights, fixed all-inclusive rate, totals) and Supabase claim operations
     departments.js   Department list for the sign-up dropdown
     receipts.js      Receipt upload and signed links (Supabase Storage)
     format.js        Currency, date and name formatting
+    queryClient.js   Cache settings, and refreshClaims() to call after changing claims
     status.js        Colours and icons for each claim status
   pages/             One file per route (see DATABASE_SCHEMA.md for the route list)
 ```

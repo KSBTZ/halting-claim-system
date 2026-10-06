@@ -1,6 +1,7 @@
-import { CircleAlert, Trash2 } from 'lucide-react';
-import { ALLOWANCE_TYPES, getEntryErrors } from '../lib/claims';
-import { formatCurrency, pluralize } from '../lib/format';
+import { CircleAlert, Lock, Trash2 } from 'lucide-react';
+import { ALLOWANCE_TYPES, ALL_INCLUSIVE_RATE_PER_NIGHT, getEntryErrors } from '../lib/claims';
+import { addDaysISO, formatCurrency, pluralize } from '../lib/format';
+import DatePicker from './DatePicker';
 import { ReceiptUpload } from './ReceiptField';
 
 const Field = ({ id, label, error, className = '', children }) => (
@@ -82,12 +83,25 @@ const EntryEditor = ({ entry, index, canRemove, onChange, onRemove, receiptReadO
           <input type="text" maxLength={120} placeholder="e.g. Kumasi branch" {...bind('toPlace')} />
         </Field>
 
-        {/* Below lg the date fields don't fit three across, so No. of nights wraps */}
+        {/* A halting covers at least one night, so To must be after From */}
         <Field id={id('from')} label="From date" className="col-span-6 lg:col-span-4">
-          <input type="date" max={entry.to || undefined} {...bind('from')} />
+          <DatePicker
+            id={id('from')}
+            title="Choose the From date"
+            value={entry.from}
+            max={entry.to ? addDaysISO(entry.to, -1) : undefined}
+            onChange={(value) => onChange(entry.id, 'from', value)}
+          />
         </Field>
         <Field id={id('to')} label="To date" error={errors.to} className="col-span-6 lg:col-span-4">
-          <input type="date" min={entry.from || undefined} {...bind('to')} />
+          <DatePicker
+            id={id('to')}
+            title="Choose the To date"
+            value={entry.to}
+            min={entry.from ? addDaysISO(entry.from, 1) : undefined}
+            invalid={Boolean(errors.to)}
+            onChange={(value) => onChange(entry.id, 'to', value)}
+          />
         </Field>
         <div className="col-span-12 min-w-0 lg:col-span-4">
           <p className="field-label">No. of nights</p>
@@ -128,16 +142,24 @@ const EntryEditor = ({ entry, index, canRemove, onChange, onRemove, receiptReadO
 
         {!entry.allowanceType && (
           <p className="mt-3 text-sm text-gray-500">
-            Choose <span className="font-semibold text-gray-700">All-inclusive</span> for a single amount, or{' '}
+            Choose <span className="font-semibold text-gray-700">All-inclusive</span> for the fixed nightly rate, or{' '}
             <span className="font-semibold text-gray-700">Accommodation</span> to claim accommodation, pocket and T&amp;T allowances.
           </p>
         )}
 
         {entry.allowanceType === 'all_inclusive' && (
-          <div className="mt-4 grid grid-cols-12 gap-4">
-            <Field id={id('allInclusive')} label="All-inclusive allowance" error={errors.allInclusive} className="col-span-12 sm:col-span-6">
-              <MoneyInput {...money('allInclusive')} />
-            </Field>
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-brand-700" />
+            <div className="min-w-0 text-sm">
+              <p className="font-semibold text-gray-900">
+                Fixed rate: GHS {formatCurrency(ALL_INCLUSIVE_RATE_PER_NIGHT)} per night
+              </p>
+              <p className="tabular mt-0.5 text-gray-600">
+                {entry.nights
+                  ? `${pluralize(entry.nights, 'night')} × GHS ${formatCurrency(ALL_INCLUSIVE_RATE_PER_NIGHT)} = GHS ${formatCurrency(entry.allowance)}`
+                  : 'Pick the From and To dates to work out the amount.'}
+              </p>
+            </div>
           </div>
         )}
 

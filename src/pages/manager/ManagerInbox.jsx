@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { Check, CircleCheck, CircleX, Clock, Inbox, MessageSquareQuote, Pencil, Search, Trash2, Wallet, X } from 'lucide-react';
 import { supabase } from '../../supabase/supabaseClient';
 import AppLayout from '../../components/AppLayout';
 import EntryEditor from '../../components/EntryEditor';
 import EntryTable from '../../components/EntryTable';
 import { ClaimCardSkeleton, EmptyState, PageHeader, SignatureStamp, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
+import { useAllClaims, useProfile } from '../../hooks/useAppData';
 import { useFeedback } from '../../hooks/useFeedback';
+import { refreshClaims } from '../../lib/queryClient';
 import { formatCurrency, formatDate, getClaimTotals, getInitials, pluralize } from '../../lib/format';
 import { deleteClaim, isEntryComplete, normalizeEntry, toEntryColumns, toFormEntries } from '../../lib/claims';
 import { getStatusMeta } from '../../lib/status';
@@ -14,12 +15,10 @@ import { getStatusMeta } from '../../lib/status';
 const TABS = ['Pending', 'Approved', 'Disapproved'];
 
 const ManagerInbox = () => {
-  const navigate = useNavigate();
   const { confirm, toast } = useFeedback();
-  const [managerName, setManagerName] = useState(null);
-  const [claims, setClaims] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [reloadKey, setReloadKey] = useState(0);
+  // Cached and refreshed every 20 seconds while the inbox is open
+  const { data: profile } = useProfile();
+  const { data: claims = [], isPending: loading } = useAllClaims(Boolean(profile?.id));
   const [activeTab, setActiveTab] = useState('Pending');
   const [search, setSearch] = useState('');
   const [comments, setComments] = useState({}); // { [claimId]: commentText }
@@ -30,51 +29,6 @@ const ManagerInbox = () => {
   const [amendingClaimId, setAmendingClaimId] = useState(null); // which claim is in edit mode
   const [editedEntries, setEditedEntries] = useState([]); // form-shaped copies of that claim's entries
   const [savingAmendment, setSavingAmendment] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchClaims = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        navigate('/');
-        return;
-      }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('staff_name')
-        .eq('id', user.id)
-        .single();
-
-      if (cancelled) return;
-      setManagerName(profile?.staff_name || '');
-
-      // RLS lets managers see every claim, not just their own
-      const { data, error } = await supabase
-        .from('claims')
-        .select('*, entries(*)')
-        .order('submitted_at', { ascending: false });
-
-      if (cancelled) return;
-
-      if (error) {
-        console.error('Could not load claims:', error);
-      } else {
-        setClaims(data);
-      }
-
-      setLoading(false);
-    };
-
-    fetchClaims();
-    return () => {
-      cancelled = true;
-    };
-  }, [navigate, reloadKey]);
-
-  const refresh = () => setReloadKey((key) => key + 1);
 
   const handleDelete = async (claim) => {
     const confirmed = await confirm({
@@ -96,7 +50,7 @@ const ManagerInbox = () => {
     }
 
     toast('Claim deleted', { tone: 'info', icon: Trash2 });
-    refresh();
+    refreshClaims();
   };
 
   const handleDecision = async (claimId, decision) => {
@@ -123,12 +77,13 @@ const ManagerInbox = () => {
     }
 
     toast(`Claim ${decision.toLowerCase()}`, decision === 'Approved' ? { tone: 'success', icon: Check } : { tone: 'error', icon: X });
-    refresh();
+    refreshClaims();
   };
 
   // Enter edit mode for a claim: seed editedEntries with its current values
   const startAmend = (claim) => {
-    setEditedEntries(toFormEntries(claim.entries));
+    // Recalculate with today's rules, e.g. the fixed all-inclusive rate
+    setEditedEntries(toFormEntries(claim.entries).map(normalizeEntry));
     setAmendingClaimId(claim.id);
   };
 
@@ -160,7 +115,7 @@ const ManagerInbox = () => {
 
     toast('Claim amended', { tone: 'info', icon: Pencil });
     cancelAmend();
-    refresh();
+    refreshClaims();
   };
 
   const countBy = (status) => claims.filter((c) => c.status === status).length;
@@ -181,7 +136,7 @@ const ManagerInbox = () => {
   const amendmentValid = editedEntries.length > 0 && editedEntries.every((entry) => isEntryComplete(entry, { requireReceipt: false }));
 
   return (
-    <AppLayout role="manager" userName={managerName} badges={{ pending: pendingCount }}>
+    <AppLayout role="manager" badges={{ pending: pendingCount }}>
       <PageHeader
         eyebrow="Manager"
         title="Claim inbox"

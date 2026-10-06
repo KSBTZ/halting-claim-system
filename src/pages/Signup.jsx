@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ArrowRight, BadgeCent, Briefcase, Hash, Mail, RefreshCw, ShieldCheck, User } from 'lucide-react';
 import { supabase } from '../supabase/supabaseClient';
+import { queryClient } from '../lib/queryClient';
 import AuthLayout from '../components/AuthLayout';
 import { IconInput, IconSelect, PasswordInput } from '../components/AuthFields';
 import { Alert, Spinner } from '../components/ui';
@@ -115,6 +116,7 @@ const Signup = () => {
     }
 
     setLoading(false);
+    queryClient.clear();
 
     // Send them to the employee dashboard upon successful creation
     navigate('/employee/new-claim');

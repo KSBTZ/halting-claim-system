@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ArrowRight, User } from 'lucide-react';
 import { supabase } from '../supabase/supabaseClient';
+import { queryClient } from '../lib/queryClient';
 import AuthLayout from '../components/AuthLayout';
 import { IconInput, PasswordInput } from '../components/AuthFields';
 import { Alert, Spinner } from '../components/ui';
@@ -65,6 +66,9 @@ const Login = () => {
       setError('Could not find your profile');
       return;
     }
+
+    // Start with a clean cache so nothing from a previous account shows
+    queryClient.clear();
 
     if (profile.role === 'manager') {
       navigate('/manager/inbox');

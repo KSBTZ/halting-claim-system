@@ -7,6 +7,7 @@ import SignaturePad from '../../components/SignaturePad';
 import StaffDetailsCard from '../../components/StaffDetailsCard';
 import { Alert, PageHeader, Spinner, Stepper } from '../../components/ui';
 import { useFeedback } from '../../hooks/useFeedback';
+import { refreshClaims } from '../../lib/queryClient';
 import { formatCurrency, formatDate, getClaimTotals, pluralize, todayISO } from '../../lib/format';
 import { CLAIM_STEPS, MAX_DRAFTS, MAX_PENDING, saveDraft, submitClaim } from '../../lib/claims';
 
@@ -54,6 +55,7 @@ const ReviewSummary = () => {
     } else if (status === 'error') {
       setError('Could not submit claim. Please try again.');
     } else {
+      await refreshClaims();
       toast('Claim sent to your manager for review');
       navigate('/employee/my-requests');
     }
@@ -78,6 +80,7 @@ const ReviewSummary = () => {
     } else if (status === 'error') {
       toast('Could not save draft. Please try again.', { tone: 'error' });
     } else {
+      await refreshClaims();
       toast('Draft saved');
       navigate('/employee/my-requests');
     }
@@ -86,7 +89,7 @@ const ReviewSummary = () => {
   const handleEdit = () => navigate('/employee/new-claim', { state: { staffDetails, claimEntries, draftClaimId } });
 
   return (
-    <AppLayout role="employee" userName={staffDetails.staff_name}>
+    <AppLayout role="employee">
       <PageHeader
         eyebrow="Almost done"
         title="Review and sign"

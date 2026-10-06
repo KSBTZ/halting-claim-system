@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FilePlus2, Inbox, ListChecks, LogOut, Menu, X } from 'lucide-react';
 import { supabase } from '../supabase/supabaseClient';
+import { useProfile, useUnseenCount } from '../hooks/useAppData';
 import { useFeedback } from '../hooks/useFeedback';
+import { queryClient } from '../lib/queryClient';
 import { getInitials } from '../lib/format';
 import { Spinner } from './ui';
 import logo from '../assets/logo-wordmark.webp';
@@ -20,45 +22,29 @@ const NAV = {
 
 /**
  * Shared shell for signed-in pages: sidebar, mobile top bar and logout.
- * userName is null while still loading. badges maps a nav badgeKey to a count.
+ * Loads the signed-in profile itself (cached) and sends signed-out visitors to the login page.
+ * badges maps a nav badgeKey to a count.
  */
-const AppLayout = ({ role = 'employee', userName, badges = {}, children }) => {
+const AppLayout = ({ role = 'employee', badges = {}, children }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { confirm } = useFeedback();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [unseenCount, setUnseenCount] = useState(0);
+
+  const { data: profile, isPending: loadingProfile } = useProfile();
+  const userName = loadingProfile ? null : profile?.staff_name || '';
 
   const onMyRequests = pathname === '/employee/my-requests';
+  const { data: unseenCount = 0 } = useUnseenCount(profile?.id, role === 'employee' && !onMyRequests);
   const roleLabel = role === 'manager' ? 'Manager' : 'Employee';
   // My Requests marks everything as seen, so there's no badge to show while on it
   const allBadges = { unseen: onMyRequests ? 0 : unseenCount, ...badges };
   const hasBadge = NAV[role].some((item) => item.badgeKey && allBadges[item.badgeKey] > 0);
 
   useEffect(() => {
-    if (role !== 'employee' || onMyRequests) return;
-    let cancelled = false;
-
-    const fetchUnseenCount = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { count } = await supabase
-        .from('claims')
-        .select('*', { count: 'exact', head: true })
-        .eq('employee_id', user.id)
-        .neq('status', 'Pending')
-        .eq('seen_by_employee', false);
-
-      if (!cancelled) setUnseenCount(count || 0);
-    };
-
-    fetchUnseenCount();
-    return () => {
-      cancelled = true;
-    };
-  }, [role, onMyRequests]);
+    if (!loadingProfile && !profile && !loggingOut) navigate('/');
+  }, [loadingProfile, profile, loggingOut, navigate]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -85,6 +71,8 @@ const AppLayout = ({ role = 'employee', userName, badges = {}, children }) => {
       supabase.auth.signOut(),
       new Promise((resolve) => setTimeout(resolve, 600)),
     ]);
+    // Nothing from this account should be shown to whoever signs in next
+    queryClient.clear();
     navigate('/');
   };
 

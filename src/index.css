@@ -14,18 +14,6 @@
   ::selection {
     @apply bg-sun-300 text-brand-900;
   }
-
-  input[type='date']::-webkit-calendar-picker-indicator {
-    @apply cursor-pointer opacity-50 transition-opacity hover:opacity-90;
-  }
-
-  /* iOS Safari renders empty date inputs collapsed and centred */
-  input[type='date'] {
-    @apply min-h-[2.75rem] text-left;
-  }
-  input[type='date']::-webkit-date-and-time-value {
-    @apply text-left;
-  }
 }
 
 @layer components {

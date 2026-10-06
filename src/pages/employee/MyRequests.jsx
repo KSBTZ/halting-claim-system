@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { CircleCheck, Clock, FileText, MessageSquareQuote, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
-import { supabase } from '../../supabase/supabaseClient';
 import AppLayout from '../../components/AppLayout';
 import EntryTable from '../../components/EntryTable';
 import { ClaimCardSkeleton, EmptyState, PageHeader, SignatureStamp, Spinner, StatCard, StatusBadge, Tabs } from '../../components/ui';
+import { useMyClaims, useProfile } from '../../hooks/useAppData';
 import { useFeedback } from '../../hooks/useFeedback';
+import { refreshClaims } from '../../lib/queryClient';
 import { formatCurrency, formatDate, getClaimTotals, pluralize } from '../../lib/format';
 import { deleteClaim, toFormEntries } from '../../lib/claims';
 import { getStatusMeta } from '../../lib/status';
@@ -15,51 +16,12 @@ const FILTERS = ['All', 'Pending', 'Approved', 'Disapproved', 'Draft'];
 const MyRequests = () => {
   const navigate = useNavigate();
   const { confirm, toast } = useFeedback();
-  const [staffName, setStaffName] = useState(null);
-  const [claims, setClaims] = useState([]);
-  const [loadingClaims, setLoadingClaims] = useState(true);
   const [filter, setFilter] = useState('All');
   const [deletingId, setDeletingId] = useState(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        navigate('/');
-        return;
-      }
-
-      // Fetch the profile name directly, instead of relying on claims data
-      // (which would leave the name blank if the employee has no claims yet)
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('staff_name')
-        .eq('id', user.id)
-        .single();
-
-      setStaffName(profile?.staff_name || '');
-
-      const { data, error } = await supabase
-        .from('claims')
-        .select('*, entries(*)')
-        .eq('employee_id', user.id)
-        .order('submitted_at', { ascending: false });
-
-      if (error) {
-        console.error('Could not load claims:', error);
-      } else {
-        setClaims(data);
-      }
-
-      // They're viewing their requests now, so clear the unseen flag
-      await supabase.rpc('mark_own_claims_seen');
-
-      setLoadingClaims(false);
-    };
-
-    fetchData();
-  }, [navigate]);
+  // Cached and refreshed every 30 seconds while the page is open
+  const { data: profile } = useProfile();
+  const { data: claims = [], isPending: loadingClaims } = useMyClaims(profile?.id);
 
   const handleContinueDraft = (claim) => {
     navigate('/employee/new-claim', {
@@ -94,7 +56,7 @@ const MyRequests = () => {
       return;
     }
 
-    setClaims((prev) => prev.filter((c) => c.id !== claimId));
+    await refreshClaims();
     toast('Draft deleted', { tone: 'info', icon: Trash2 });
   };
 
@@ -112,7 +74,7 @@ const MyRequests = () => {
   }));
 
   return (
-    <AppLayout role="employee" userName={staffName}>
+    <AppLayout role="employee">
       <PageHeader
         eyebrow="Your claims"
         title="My requests"
